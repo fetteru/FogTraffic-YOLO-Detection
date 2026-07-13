@@ -1,0 +1,14 @@
+path: D:/rsod-agent-platform/backend/datasets/rsod/raindataset
+train: train/images
+val: valid/images
+test: test/images
+
+nc: 7
+names:
+  0: car
+  1: person
+  2: motorcycle
+  3: bus
+  4: truck
+  5: bicycle
+  6: train
