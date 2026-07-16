@@ -1,0 +1,14 @@
+{
+  "name": "yolo11-agent-platform-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "可直接运行的 YOLOv11 目标检测智能体平台前端",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
