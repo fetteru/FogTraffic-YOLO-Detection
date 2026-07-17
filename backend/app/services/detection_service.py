@@ -17,6 +17,8 @@ import numpy as np
 from PIL import Image
 
 from app.agent.rain_fog_workflow import run_rain_fog_workflow
+from app.agent.risk_agent import assess_risk
+from app.agent.traffic_agent import analyze_detection_result
 from app.agent.tracking_agent import SimpleIoUTracker
 from app.agent.visibility_agent import analyze_frame
 from app.config.settings import settings
@@ -576,6 +578,19 @@ class DetectionService:
         started = time.perf_counter()
         result = model.predict(source=frame, conf=conf, iou=iou, imgsz=imgsz, verbose=False)[0]
         detections = _boxes_to_detections(result, model)
+        class_counts: dict[str, int] = {}
+        for item in detections:
+            name = str(item.get("class_name") or "unknown")
+            class_counts[name] = class_counts.get(name, 0) + 1
+        visibility = analyze_frame(frame, detections)
+        traffic = analyze_detection_result(
+            {
+                "detections": detections,
+                "class_counts": class_counts,
+                "total_objects": len(detections),
+            }
+        )
+        risk = assess_risk(visibility, traffic)
         annotated = result.plot()
         ok, encoded = cv2.imencode(".jpg", annotated, [int(cv2.IMWRITE_JPEG_QUALITY), 70])
         if not ok:
@@ -584,7 +599,20 @@ class DetectionService:
         return {
             "annotated_frame": base64.b64encode(encoded.tobytes()).decode("ascii"),
             "total_objects": len(detections),
+            "class_counts": class_counts,
             "detections": detections,
+            "rain_fog_analysis": {
+                "visibility": visibility,
+                "traffic": traffic,
+                "risk": risk,
+                "alert": {
+                    "alert_level": risk.get("risk_level", 0),
+                    "alert_required": risk.get("alert_required", False),
+                    "alert_message": "；".join(risk.get("reasons", []))[:500],
+                }
+                if risk.get("alert_required")
+                else None,
+            },
             "inference_time": round((time.perf_counter() - started) * 1000, 2),
             "mode": mode,
         }

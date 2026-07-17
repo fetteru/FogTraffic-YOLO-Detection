@@ -7,8 +7,9 @@ import os
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from starlette.datastructures import UploadFile
 
 from app.agent.detection_agent import detection_agent
 from app.api.auth import get_current_user
@@ -19,11 +20,10 @@ router = APIRouter(prefix="/api", tags=["chat"])
 
 @router.post("/chat/stream")
 async def chat_stream(
-    message: str = Form(...),
-    session_id: str = Form("default"),
-    files: list[UploadFile] | None = File(None),
+    request: Request,
     current_user=Depends(get_current_user),
 ):
+    message, session_id, files = await _parse_chat_request(request)
     tmp_paths = []
     try:
         if files:
@@ -58,3 +58,39 @@ def _cleanup_files(paths: list[str]) -> None:
             os.unlink(path)
         except OSError:
             pass
+
+
+async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFile]]:
+    content_type = request.headers.get("content-type", "")
+    files: list[UploadFile] = []
+    attachment_names: list[str] = []
+
+    if "multipart/form-data" in content_type:
+        form = await request.form()
+        message = str(form.get("message") or form.get("content") or "").strip()
+        session_id = str(form.get("session_id") or "default")
+        for key in ("files", "file"):
+            attachment_names.extend(
+                item.filename or "upload"
+                for item in form.getlist(key)
+                if isinstance(item, UploadFile)
+            )
+    elif "application/json" in content_type:
+        payload = await request.json()
+        message = str(payload.get("message") or payload.get("content") or "").strip()
+        session_id = str(payload.get("session_id") or "default")
+    else:
+        payload = await request.body()
+        message = payload.decode("utf-8", errors="ignore").strip()
+        session_id = "default"
+
+    if attachment_names:
+        message = (
+            f"{message}\n\n"
+            f"用户附加了文件：{', '.join(attachment_names)}。"
+            "普通对话通道不会读取或上传原文件；如需识别图片/视频，请使用单图检测、视频检测或 ZIP 检测功能。"
+        ).strip()
+
+    if not message:
+        raise HTTPException(status_code=422, detail="message or files is required")
+    return message, session_id, files

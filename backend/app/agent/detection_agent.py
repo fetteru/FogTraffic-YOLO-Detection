@@ -24,7 +24,7 @@ except Exception:
         return _SimpleTool(func)
 
 from app.agent.memory import conversation_memory
-from app.agent.prompts import SYSTEM_PROMPT, build_context_prompt
+from app.agent.prompts import PROJECT_INTRO, SYSTEM_PROMPT, build_context_prompt
 from app.config.settings import settings
 from app.core.logger import get_logger
 from app.rag.retriever import knowledge_retriever
@@ -168,9 +168,10 @@ class DetectionAgent:
 
     def _get_executor(self):
         provider = settings.LLM_PROVIDER.lower()
-        api_key = settings.QWEN_API_KEY if provider == "qwen" else settings.OPENAI_API_KEY
-        model_name = settings.QWEN_MODEL if provider == "qwen" else settings.OPENAI_MODEL
-        base_url = settings.QWEN_BASE_URL if provider == "qwen" else settings.OPENAI_BASE_URL
+        provider_config = _provider_config(provider)
+        api_key = provider_config["api_key"]
+        model_name = provider_config["model"]
+        base_url = provider_config["base_url"]
 
         if not api_key:
             return None
@@ -250,7 +251,7 @@ class DetectionAgent:
                     return
 
             for chunk in _chunk_text(output):
-                yield {"type": "text_chunk", "content": chunk}
+                yield {"type": "token", "content": chunk}
             conversation_memory.append(session_id, "assistant", output)
             yield {"type": "done"}
         finally:
@@ -265,7 +266,7 @@ class DetectionAgent:
         lowered = message.lower()
         if image_paths:
             tool_name = _detect_tool_name(image_paths)
-            yield_events = [{"type": "tool_start", "tool": tool_name, "content": "正在调用检测工具..."}]
+            yield_events = [_tool_start(tool_name, "正在调用检测工具...")]
             try:
                 if tool_name == "detect_video_file":
                     raw = detect_video_file.invoke({"video_path": image_paths[0]})
@@ -277,14 +278,14 @@ class DetectionAgent:
                     raw = detect_batch_images.invoke({"image_paths": image_paths})
                 summary = json.loads(raw)
                 text = _format_detection_text(summary)
-                yield_events.append({"type": "tool_end", "tool": tool_name, "content": text, "result": summary})
-                yield_events.extend({"type": "text_chunk", "content": chunk} for chunk in _chunk_text(text))
+                yield_events.append(_tool_result(tool_name, text, summary))
+                yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
                 return yield_events
             except Exception as exc:
                 return [{"type": "error", "content": f"检测工具调用失败：{exc}"}]
 
         if _looks_like_stats_question(lowered):
-            yield_events = [{"type": "tool_start", "tool": "query_detection_statistics", "content": "正在查询检测统计..."}]
+            yield_events = [_tool_start("query_detection_statistics", "正在查询检测统计...")]
             raw = query_detection_statistics.invoke({"days": 30})
             data = json.loads(raw)
             text = (
@@ -293,12 +294,12 @@ class DetectionAgent:
                 f"检测到 {data.get('total_objects', 0)} 个目标，"
                 f"平均推理耗时 {data.get('avg_inference_time', 0)} ms。"
             )
-            yield_events.append({"type": "tool_end", "tool": "query_detection_statistics", "content": text, "result": data})
-            yield_events.extend({"type": "text_chunk", "content": chunk} for chunk in _chunk_text(text))
+            yield_events.append(_tool_result("query_detection_statistics", text, data))
+            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
             return yield_events
 
         if _looks_like_history_question(lowered):
-            yield_events = [{"type": "tool_start", "tool": "query_recent_history", "content": "正在查询最近检测历史..."}]
+            yield_events = [_tool_start("query_recent_history", "正在查询最近检测历史...")]
             raw = query_recent_history.invoke({"limit": 5})
             data = json.loads(raw)
             items = data.get("items", [])
@@ -308,12 +309,12 @@ class DetectionAgent:
                     f"- #{item.get('id')} {item.get('task_type')} / {item.get('status')} / 目标 {item.get('total_objects', 0)}"
                 )
             text = "\n".join(lines)
-            yield_events.append({"type": "tool_end", "tool": "query_recent_history", "content": text, "result": data})
-            yield_events.extend({"type": "text_chunk", "content": chunk} for chunk in _chunk_text(text))
+            yield_events.append(_tool_result("query_recent_history", text, data))
+            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
             return yield_events
 
         if _looks_like_user_question(lowered):
-            yield_events = [{"type": "tool_start", "tool": "query_users", "content": "正在查询用户信息..."}]
+            yield_events = [_tool_start("query_users", "正在查询用户信息...")]
             raw = query_users.invoke({"keyword": ""})
             data = json.loads(raw)
             items = data.get("items", [])
@@ -321,18 +322,18 @@ class DetectionAgent:
                 f"- {item.get('username')} ({item.get('email')}) 角色：{', '.join(item.get('roles') or []) or '无'}"
                 for item in items[:10]
             )
-            yield_events.append({"type": "tool_end", "tool": "query_users", "content": text, "result": data})
-            yield_events.extend({"type": "text_chunk", "content": chunk} for chunk in _chunk_text(text))
+            yield_events.append(_tool_result("query_users", text, data))
+            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
             return yield_events
 
         if _looks_like_knowledge_question(lowered):
-            yield_events = [{"type": "tool_start", "tool": "search_knowledge_base", "content": "正在检索本地知识库..."}]
+            yield_events = [_tool_start("search_knowledge_base", "正在检索本地知识库...")]
             raw = search_knowledge_base.invoke({"query": message})
             data = json.loads(raw)
             context = _format_knowledge_context(data.get("items", []))
             text = _fallback_answer(message, context)
-            yield_events.append({"type": "tool_end", "tool": "search_knowledge_base", "content": "已找到相关知识片段", "result": data})
-            yield_events.extend({"type": "text_chunk", "content": chunk} for chunk in _chunk_text(text))
+            yield_events.append(_tool_result("search_knowledge_base", "已找到相关知识片段", data))
+            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
             return yield_events
 
         return None
@@ -343,6 +344,46 @@ def _require_user_id() -> int:
     if not user_id:
         raise RuntimeError("missing current user")
     return user_id
+
+
+def _provider_config(provider: str) -> dict:
+    configs = {
+        "openai": {
+            "api_key": settings.OPENAI_API_KEY,
+            "model": settings.OPENAI_MODEL,
+            "base_url": settings.OPENAI_BASE_URL,
+        },
+        "qwen": {
+            "api_key": settings.QWEN_API_KEY,
+            "model": settings.QWEN_MODEL,
+            "base_url": settings.QWEN_BASE_URL,
+        },
+        "gemini": {
+            "api_key": settings.GEMINI_API_KEY,
+            "model": settings.GEMINI_MODEL,
+            "base_url": settings.GEMINI_BASE_URL,
+        },
+    }
+    return configs.get(provider, configs["openai"])
+
+
+def _tool_start(tool_name: str, message: str) -> dict:
+    return {
+        "type": "tool_start",
+        "tool": tool_name,
+        "message": message,
+        "content": message,
+    }
+
+
+def _tool_result(tool_name: str, message: str, result: dict) -> dict:
+    return {
+        "type": "tool_result",
+        "tool": tool_name,
+        "message": message,
+        "content": message,
+        "result": result,
+    }
 
 
 def _detect_tool_name(paths: list[str]) -> str:
@@ -383,10 +424,11 @@ def _format_knowledge_context(items: list[dict]) -> str:
 
 def _fallback_answer(message: str, knowledge_context: str) -> str:
     if knowledge_context:
-        return f"根据本地知识库，相关内容如下：\n\n{knowledge_context}"
+        return f"???????????????\n\n{knowledge_context}"
     return (
-        "我已经接入检测工具、统计查询、历史记录、用户查询和本地知识库。"
-        "你可以上传图片/ZIP/视频让我检测，也可以问我“什么是 IoU”“最近检测了多少次”等问题。"
+        f"{PROJECT_INTRO.strip()}\n\n"
+        "???????????????????????????????????????IoU ? YOLO ?????"
+        "???????? YOLO ????????????????????????"
     )
 
 
@@ -414,7 +456,7 @@ def _summarize_detection_result(result: dict) -> dict:
     if "total_frames" in result:
         summary["total_frames"] = result.get("total_frames")
         summary["sampled_frames"] = result.get("sampled_frames")
-        summary["video_url"] = result.get("video_url")
+        summary["media_note"] = "视频结果已由后端保存，LLM 摘要不包含媒体 URL。"
     return summary
 
 

@@ -374,11 +374,13 @@ function cameraResultCsv(result) {
   const rows = (result.objectEvents || []).map(item => [
     item.frame_number ?? '',
     item.frame_time ?? '',
+    item.risk_level ?? '',
+    item.risk_name ?? '',
     classLabel(item.class_name || 'object'),
     item.class_name || 'object',
     Math.round(Number(item.confidence || 0) * 100)
   ]);
-  const header = ['frame', 'time_sec', 'class_label', 'class_name', 'confidence_percent'];
+  const header = ['frame', 'time_sec', 'risk_level', 'risk_name', 'class_label', 'class_name', 'confidence_percent'];
   return `\ufeff${[header, ...rows].map(row => row.map(csvCell).join(',')).join('\n')}`;
 }
 
@@ -612,6 +614,7 @@ function normalizeBackendDetectionResult(payload = {}, file = null, mode = 'sing
 
 function cameraResultFromPayload(payload = {}) {
   const camera = state.detection.camera;
+  const analysis = payload.rain_fog_analysis || {};
   const detections = Array.isArray(payload.detections) ? payload.detections : [];
   const frameCounts = payload.class_counts || detections.reduce((acc, item) => {
     const name = item.class_name || item.label || 'object';
@@ -626,6 +629,8 @@ function cameraResultFromPayload(payload = {}) {
     .flatMap(frame => (frame.detections || []).map(item => ({
       frame_number: frame.frame_number,
       frame_time: frame.frame_time,
+      risk_level: frame.risk_level ?? '',
+      risk_name: frame.risk_name ?? '',
       class_name: item.class_name || item.label || 'object',
       confidence: Number(item.confidence || 0)
     })))
@@ -648,10 +653,10 @@ function cameraResultFromPayload(payload = {}) {
     frames: [...camera.frameSamples].reverse(),
     objectEvents,
     keyFrames: [],
-    risk: null,
-    report: '',
-    traffic: null,
-    visibility: null,
+    risk: analysis.risk || null,
+    report: analysis.report || '',
+    traffic: analysis.traffic || null,
+    visibility: analysis.visibility || null,
     inference: Number(payload.inference_time || camera.stats.inference || 0),
     confidence: state.detection.confidence,
     iou: state.detection.iou,
@@ -664,6 +669,7 @@ function cameraResultFromPayload(payload = {}) {
 
 function recordCameraFrame(payload = {}) {
   const camera = state.detection.camera;
+  const analysis = payload.rain_fog_analysis || {};
   const detections = Array.isArray(payload.detections) ? payload.detections : [];
   const classCounts = payload.class_counts || detections.reduce((acc, item) => {
     const name = item.class_name || item.label || 'object';
@@ -678,6 +684,8 @@ function recordCameraFrame(payload = {}) {
     frame_number: camera.stats.frames,
     frame_time: elapsed.toFixed(2),
     total_objects: Number(payload.total_objects ?? detections.length ?? 0),
+    risk_level: analysis.risk?.risk_level ?? null,
+    risk_name: analysis.risk?.risk_name ?? '',
     class_counts: classCounts,
     detections: detections.map(item => ({
       class_name: item.class_name || item.label || 'object',
@@ -1134,6 +1142,20 @@ function openNewTaskModal(datasetName = '') {
   openModal({ title: '新建训练任务', subtitle: 'POST /api/training/start', size: 'lg', body: `<form id="new-task-form" class="modal-form"><div class="form-grid"><label class="span-2"><span>任务名称</span><input name="name" value="${escapeHtml(datasetName ? `${datasetName} 精调训练` : '交通目标检测新任务')}" required></label><label><span>数据集</span><select name="dataset_name">${state.datasets.map(item => `<option ${item.name === datasetName ? 'selected' : ''}>${escapeHtml(item.name)}</option>`).join('')}</select></label><label><span>基础模型</span><select name="model_name"><option>yolov11n</option><option selected>yolov11s</option><option>yolov11m</option><option>yolov11l</option></select></label><label><span>设备</span><select name="device"><option>cpu</option><option selected>cuda:0</option></select></label><label><span>Epochs</span><input name="epochs" type="number" min="1" max="500" value="100"></label><label><span>Batch Size</span><input name="batch_size" type="number" min="1" max="128" value="16"></label><label><span>图像尺寸</span><select name="image_size"><option>512</option><option selected>640</option><option>1024</option></select></label><label><span>初始学习率</span><input name="lr0" type="number" step="0.0001" value="0.01"></label><label><span>优化器</span><select name="optimizer"><option>auto</option><option>SGD</option><option>AdamW</option></select></label><label class="switch-setting span-2"><div><strong>启用数据增强</strong><p>Mosaic、MixUp、HSV 与随机翻转。</p></div><input name="augmentation" type="checkbox" checked><i></i></label></div></form>`, footer: `<button class="btn btn-ghost" data-action="close-modal">取消</button><button class="btn btn-primary" data-action="submit-new-task">${icon('play')}创建并启动</button>` });
 }
 
+openNewTaskModal = function openNewTaskModalWithDatasets(datasetName = '') {
+  const datasets = state.datasets.filter(item => item.data_yaml);
+  const datasetOptions = datasets.length
+    ? datasets.map((item, index) => `<option value="${index}" ${item.name === datasetName ? 'selected' : ''}>${escapeHtml(item.name)} - ${escapeHtml(item.data_yaml || '')}</option>`).join('')
+    : '<option value="" disabled selected>未发现可训练数据集，请确认 backend/datasets 下存在 data.yaml</option>';
+  openModal({
+    title: '新建训练任务',
+    subtitle: 'POST /api/training/start',
+    size: 'lg',
+    body: `<form id="new-task-form" class="modal-form"><div class="form-grid"><label class="span-2"><span>任务名称</span><input name="name" value="${escapeHtml(datasetName ? `${datasetName} 精调训练` : '雨雾交通检测训练任务')}" required></label><label class="span-2"><span>数据集</span><select name="dataset_index" ${datasets.length ? '' : 'disabled'} required>${datasetOptions}</select></label><label><span>基础模型</span><select name="model_name"><option>yolov11n</option><option selected>yolov11s</option><option>yolov11m</option><option>yolov11l</option></select></label><label><span>设备</span><select name="device"><option value="cpu">cpu</option><option value="0" selected>cuda:0</option></select></label><label><span>Epochs</span><input name="epochs" type="number" min="1" max="500" value="100"></label><label><span>Batch Size</span><input name="batch_size" type="number" min="1" max="64" value="16"></label><label><span>图像尺寸</span><select name="img_size"><option>512</option><option selected>640</option><option>1024</option></select></label><label><span>初始学习率</span><input name="lr0" type="number" step="0.0001" value="0.01"></label><label><span>优化器</span><select name="optimizer"><option>auto</option><option>SGD</option><option>AdamW</option></select></label><label class="switch-setting span-2"><div><strong>启用数据增强</strong><p>Mosaic、MixUp、HSV 与随机翻转。</p></div><input name="augmentation" type="checkbox" checked><i></i></label></div></form>`,
+    footer: `<button class="btn btn-ghost" data-action="close-modal" type="button">取消</button><button class="btn btn-primary" data-action="submit-new-task" ${datasets.length ? '' : 'disabled'}>${icon('play')}创建并启动</button>`
+  });
+};
+
 function openDatasetModal() {
   openModal({ title: '新建数据集', subtitle: '创建符合 YOLO 规范的数据集目录', size: 'lg', body: `<form id="new-dataset-form" class="modal-form"><div class="form-grid"><label class="span-2"><span>数据集名称</span><input name="name" value="Medical-Lesion" required></label><label><span>场景类型</span><select name="scene"><option>智慧交通</option><option>工业质检</option><option>智慧交通</option><option selected>医疗影像</option><option>农业巡检</option></select></label><label><span>原始标注格式</span><select name="format"><option>YOLO</option><option>COCO</option><option>VOC</option><option selected>LabelMe</option></select></label><label class="span-2"><span>类别名称</span><input name="classes" value="lesion, normal" placeholder="使用英文逗号分隔"></label><label><span>训练集比例</span><input name="train_ratio" type="number" min="50" max="90" value="80"></label><label><span>验证集比例</span><input name="val_ratio" type="number" min="5" max="30" value="10"></label><label class="span-2"><span>说明</span><textarea name="description" rows="3" placeholder="数据来源、标注规范与使用说明"></textarea></label></div></form>`, footer: `<button class="btn btn-ghost" data-action="close-modal">取消</button><button class="btn btn-primary" data-action="submit-new-dataset">${icon('plus')}创建数据集</button>` });
 }
@@ -1200,6 +1222,7 @@ async function authenticate(form) {
     renderShell();
     void refreshDashboard(false);
     void refreshHistory(false);
+    void refreshTrainingDatasets(false);
     void refreshTasks(false);
   } catch (error) {
     state.busy = false;
@@ -1220,7 +1243,40 @@ function navigate(page) {
 async function refreshPageData(page = state.page) {
   if (page === 'dashboard') await refreshDashboard(false);
   else if (page === 'history') await refreshHistory(false);
-  else if (page === 'training' || page === 'evaluation') await refreshTasks(false);
+  else if (page === 'training' || page === 'evaluation') {
+    await refreshTrainingDatasets(false);
+    await refreshTasks(false);
+  }
+}
+
+async function refreshTrainingDatasets(showToast = false) {
+  try {
+    const remote = await api('/api/training/datasets', { method: 'GET' });
+    const items = Array.isArray(remote) ? remote : remote?.items || [];
+    state.datasets = items.map((item, index) => ({
+      id: item.id || index + 1,
+      name: item.display_name || item.name || `dataset-${index + 1}`,
+      scene: item.scene_name || 'traffic_rain_fog',
+      format: item.format || 'YOLO',
+      images: Number(item.images || 0),
+      labels: Number(item.labels || item.images || 0),
+      classes: item.classes || ['car', 'person', 'truck', 'bus', 'motorcycle'],
+      train: Number(item.train || 0),
+      val: Number(item.val || 0),
+      test: Number(item.test || 0),
+      status: item.status || 'ready',
+      quality: item.status === 'ready' ? 100 : 0,
+      size: 'local',
+      updated: 'now',
+      scene_id: item.scene_id,
+      dataset_path: item.dataset_path,
+      data_yaml: item.data_yaml,
+    }));
+    if (showToast) toast(state.datasets.length ? '训练数据集已刷新' : '没有发现 data.yaml', state.datasets.length ? 'success' : 'warning');
+  } catch (error) {
+    state.datasets = [];
+    if (showToast) toast(error.message, 'error', '训练数据集加载失败');
+  }
 }
 
 async function refreshTasks(showToast = true) {
@@ -1355,10 +1411,12 @@ function addTrace(type, title, detail) {
 }
 
 async function streamChatRequest(payload, onEvent, signal) {
+  const headers = { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) };
   const response = await fetch(apiUrl('/api/chat/stream'), {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) },
-    body: JSON.stringify(payload), signal
+    headers,
+    body: JSON.stringify(payload),
+    signal
   });
   if (!response.ok || !response.body) throw new Error(`SSE 连接失败 (${response.status})`);
   const reader = response.body.getReader();
@@ -1378,11 +1436,36 @@ async function streamChatRequest(payload, onEvent, signal) {
   }
 }
 
+function latestDetectionSummaryForChat() {
+  const result = state.detection.results[state.detection.selectedResult] || state.detection.results.at(-1);
+  if (!result) return '';
+  const counts = Object.entries(result.counts || {})
+    .map(([name, count]) => `${classLabel(name)}:${count}`)
+    .join(', ') || '暂无目标';
+  const risk = result.risk
+    ? `${result.risk.risk_level ?? '-'}级 ${result.risk.risk_name || ''}`
+    : '暂无风险分析';
+  const reasons = result.risk?.reasons?.length
+    ? result.risk.reasons.slice(0, 4).join('；')
+    : '暂无明显风险原因';
+  return [
+    '【最近一次检测结果摘要，仅供分析，不包含图片、视频、base64、边界框或逐帧截图】',
+    `文件：${result.filename}`,
+    `类型：${result.mode || 'single'}`,
+    `目标总数：${result.total}`,
+    `类别统计：${counts}`,
+    `去重车辆：${result.uniqueVehicleCount ?? '无'}`,
+    `平均置信度：${Number(result.confidence || 0).toFixed(2)}`,
+    `风险等级：${risk}`,
+    `风险原因：${reasons}`,
+  ].join('\n');
+}
+
 async function sendChat() {
   const text = state.chat.input.trim();
   if ((!text && !state.chat.attachments.length) || state.chat.streaming) return;
   const attachments = state.chat.attachments.map(item => ({ ...item }));
-  const userMessage = { id: uid('msg'), role: 'user', content: text || `[快捷检测] ${attachments.map(item => item.name).join(', ')}`, attachments, time: new Date().toISOString() };
+  const userMessage = { id: uid('msg'), role: 'user', content: text || `[普通附件] ${attachments.map(item => item.name).join(', ')}`, attachments, time: new Date().toISOString() };
   const assistantMessage = { id: uid('msg'), role: 'assistant', content: '', time: new Date().toISOString(), streaming: true };
   state.chat.messages.push(userMessage, assistantMessage);
   state.chat.input = '';
@@ -1395,26 +1478,48 @@ async function sendChat() {
 
   const handleEvent = event => {
     if (event.type === 'token') assistantMessage.content += event.content || '';
+    if (event.type === 'thinking') {
+      addTrace('system', '思考中', event.content || event.message || '正在分析请求');
+    }
+    if (event.type === 'error') {
+      assistantMessage.content += event.content || event.message || 'Agent 调用失败';
+      assistantMessage.tool = assistantMessage.tool ? { ...assistantMessage.tool, status: 'error' } : null;
+    }
     if (event.type === 'tool_start') {
       assistantMessage.tool = { title: event.tool || '检测工具', detail: event.message || '正在调用工具', status: 'running' };
       addTrace('tool', '工具调用', event.tool || 'detect_single_image');
     }
     if (event.type === 'tool_result') {
-      const base = makeDetectionResult(attachments[0]?.file, 0, 'single');
       const remote = event.result || {};
-      base.total = remote.total_objects || base.total;
-      base.counts = remote.class_counts || base.counts;
-      base.inference = remote.inference_time || base.inference;
-      assistantMessage.result = base;
-      assistantMessage.tool = { title: event.tool || 'detect_single_image', detail: `检测完成，共发现 ${base.total} 个目标`, status: 'done' };
-      addTrace('result', '工具返回', `${base.total} 个目标 · ${base.inference}ms`);
+      const isDetectionTool = String(event.tool || '').startsWith('detect_');
+      if (isDetectionTool) {
+        const base = makeDetectionResult(attachments[0]?.file, 0, 'single');
+        base.total = remote.total_objects || base.total;
+        base.counts = remote.class_counts || base.counts;
+        base.inference = remote.inference_time || base.inference;
+        assistantMessage.result = base;
+        assistantMessage.tool = { title: event.tool || 'detect_single_image', detail: `检测完成，共发现 ${base.total} 个目标`, status: 'done' };
+        addTrace('result', '工具返回', `${base.total} 个目标 · ${base.inference}ms`);
+      } else {
+        assistantMessage.tool = { title: event.tool || 'tool', detail: event.message || event.content || '工具调用完成', status: 'done' };
+        addTrace('result', '工具返回', event.tool || 'tool');
+      }
     }
     if (event.type === 'done') assistantMessage.streaming = false;
     renderShell();
   };
 
   try {
-    await streamChatRequest({ message: text || '请检测附件中的目标', has_attachment: attachments.length > 0, filename: attachments[0]?.name }, handleEvent, controller.signal);
+    const attachmentNote = attachments.length
+      ? `\n\n【附件说明】用户本次附加了文件：${attachments.map(item => item.name).join(', ')}。出于 token 和隐私控制，普通对话不会上传原文件；如需识别图片或视频，请引导用户点击单图检测、视频检测或 ZIP 检测。`
+      : '';
+    const resultSummary = latestDetectionSummaryForChat();
+    await streamChatRequest({
+      message: `${text || '请根据已有检测结果进行分析，或进行普通对话。'}${attachmentNote}${resultSummary ? `\n\n${resultSummary}` : ''}`,
+      has_attachment: attachments.length > 0,
+      filename: attachments[0]?.name,
+      result_summary_only: Boolean(resultSummary),
+    }, handleEvent, controller.signal);
   } catch (error) {
     if (error.name === 'AbortError') {
       assistantMessage.content += assistantMessage.content ? '\n\n*已停止生成。*' : '*已停止生成。*';
@@ -1521,11 +1626,25 @@ async function createTrainingTask() {
   const form = $('#new-task-form');
   if (!form?.reportValidity()) return;
   const values = Object.fromEntries(new FormData(form));
+  const dataset = state.datasets.filter(item => item.data_yaml)[Number(values.dataset_index || 0)];
+  if (!dataset) {
+    toast('没有可用数据集，请先确认 backend/datasets 下存在 data.yaml', 'error');
+    return;
+  }
+  values.scene_id = Number(dataset.scene_id || 1);
+  values.dataset_name = dataset.name;
+  values.dataset_path = dataset.dataset_path;
+  values.data_yaml = dataset.data_yaml;
   values.epochs = Number(values.epochs);
   values.batch_size = Number(values.batch_size);
-  values.image_size = Number(values.image_size);
+  values.img_size = Number(values.img_size || values.image_size || 640);
+  values.augment_config = { enabled: Boolean(values.augmentation) };
+  delete values.dataset_index;
+  delete values.image_size;
+  delete values.augmentation;
   const remote = await apiOrFallback('/api/training/start', { method: 'POST', json: values }, null);
-  const id = remote?.id || Math.max(...state.tasks.map(item => Number(item.id))) + 1;
+  const existingIds = state.tasks.map(item => Number(item.id)).filter(Number.isFinite);
+  const id = remote?.id || (existingIds.length ? Math.max(...existingIds) + 1 : Date.now());
   const task = {
     id,
     task_uuid: remote?.task_uuid || `task_${id}_${Math.random().toString(16).slice(2, 8)}`,
@@ -1536,7 +1655,7 @@ async function createTrainingTask() {
     epochs: values.epochs,
     current_epoch: remote?.current_epoch || 1,
     batch_size: values.batch_size,
-    image_size: values.image_size,
+    image_size: values.img_size,
     status: 'running',
     progress: remote?.progress || 1,
     best_map50: remote?.best_map50 || .06,
@@ -2075,6 +2194,12 @@ document.addEventListener('click', async event => {
     navigate(page);
     return;
   }
+  const closeModalTarget = event.target.closest('[data-action="close-modal"]');
+  if (closeModalTarget && !closeModalTarget.disabled) {
+    event.preventDefault();
+    closeModal();
+    return;
+  }
   if (state.chat.quickActionsOpen && !event.target.closest('.chat-composer-wrap')) {
     state.chat.quickActionsOpen = false;
     renderShell();
@@ -2156,10 +2281,15 @@ document.addEventListener('click', async event => {
   else if (action === 'run-converter') await runConverter();
   else if (action === 'dataset-detail') openDatasetDetail(id);
   else if (action === 'validate-dataset') await validateDataset(id);
-  else if (action === 'train-dataset') { closeModal(); openNewTaskModal(state.datasets.find(item => Number(item.id) === Number(id))?.name || ''); }
+  else if (action === 'train-dataset') {
+    const datasetName = state.datasets.find(item => Number(item.id) === Number(id))?.name || '';
+    closeModal();
+    await refreshTrainingDatasets(false);
+    openNewTaskModal(datasetName);
+  }
   else if (action === 'pick-dataset-package') chooseFiles('dataset-package', { accept: '.zip,.json,.xml,application/zip', multiple: false });
   else if (action === 'copy-tree') { await navigator.clipboard?.writeText('datasets/scene_name/\n├── images/{train,val,test}\n├── labels/{train,val,test}\n└── data.yaml').catch(() => {}); toast('目录结构已复制'); }
-  else if (action === 'new-training-task') openNewTaskModal();
+  else if (action === 'new-training-task') { await refreshTrainingDatasets(false); openNewTaskModal(); }
   else if (action === 'submit-new-task') await createTrainingTask();
   else if (action === 'refresh-tasks') await refreshTasks();
   else if (action === 'select-task') { state.selectedTaskId = Number(id); renderShell(); }

@@ -234,6 +234,9 @@ class TrainingTaskCreate(BaseModel):
     """Create training task request."""
 
     scene_id: int = Field(..., description="Related scene id")
+    dataset_name: Optional[str] = Field(None, description="Dataset display name")
+    dataset_path: Optional[str] = Field(None, description="Dataset directory")
+    data_yaml: Optional[str] = Field(None, description="YOLO data.yaml path")
     model_name: str = Field(default="yolov11n", description="Base model")
     epochs: int = Field(default=100, ge=1, le=500, description="Training epochs")
     img_size: int = Field(default=640, description="Image size")

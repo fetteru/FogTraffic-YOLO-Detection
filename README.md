@@ -13,6 +13,15 @@ DEFAULT_MODEL_PATH=runs/train/rain_yolo_multiclass_v1(final)/weights/best.pt
 DEFAULT_DATA_YAML=datasets/rsod/raindataset/data.yaml
 ```
 
+To use Gemini, set:
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your-gemini-api-key
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai/
+```
+
 To use OpenAI instead, set `LLM_PROVIDER=openai` and configure `OPENAI_API_KEY`.
 
 Do not commit `backend/.env`. If the selected provider key is empty, the shortcut detection buttons still work, but natural-language Agent calls will return a setup reminder.
