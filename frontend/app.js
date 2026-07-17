@@ -259,6 +259,11 @@ const state = {
     dashboard: 'pending',
     health: 'pending',
   },
+  renderMeta: {
+    chatMessageCount: 0,
+    chatLastMessageLength: 0,
+    lastPage: '',
+  },
   settings: {
     apiBase: persisted.settings?.apiBase || 'http://localhost:8000',
     demoFallback: false,
@@ -551,6 +556,18 @@ function backendWebSocketUrl(path) {
   const url = new URL(path, base || location.origin);
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
   return url.toString();
+}
+
+function drawCameraSourceFrame(video, canvas, width, height) {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  ctx.save();
+  ctx.clearRect(0, 0, width, height);
+  ctx.translate(width, 0);
+  ctx.scale(-1, 1);
+  ctx.drawImage(video, 0, 0, width, height);
+  ctx.restore();
+  return true;
 }
 
 function backendCounts(payload = {}) {
@@ -862,11 +879,11 @@ function detectionResultDetail(result, embedded = false) {
   const keyFrameGrid = result.keyFrames?.length ? `<div class="key-frame-grid">${result.keyFrames.slice(0, 6).map(frame => `<article><img src="${frame.image?.startsWith('data:') ? frame.image : `data:image/jpeg;base64,${frame.image || ''}`}" alt="key frame"><div><strong>Frame ${frame.frame_number ?? '--'}</strong><span>${frame.frame_time ?? 0}s · ${frame.detections?.length || 0} objects</span></div><p>${escapeHtml(frameDetectionText(frame.detections || []))}</p></article>`).join('')}</div>` : '';
   const totalLabel = result.videoUrl && result.uniqueVehicleCount !== null ? '去重车辆' : '目标';
   const sampleMetric = result.videoUrl ? `<div class="sample-metric"><span>采样检测</span><strong>${Number(result.sampledTotal || 0).toLocaleString()}次</strong></div>` : '';
-  const isVideoResult = !isCamera && Boolean(result.videoUrl);
+  const useUnifiedLayout = !isCamera;
   const previewPane = isCamera ? '' : `<div class="detail-preview">${media}<div class="preview-toolbar"><span>${escapeHtml(result.dimensions || '1280 × 720')}</span><span>${Number(result.inference || 0).toFixed(1)} ms</span></div></div>`;
   const detailActions = embedded ? '' : `<div class="detail-actions"><button class="btn btn-ghost" data-action="download-result" data-result-id="${result.id}">${icon('download')}${result.mode === 'camera' ? '下载明细 CSV' : '下载结果'}</button><button class="btn btn-primary" data-action="save-result" data-result-id="${result.id}">${icon('check')}保存到历史</button></div>`;
   const summaryCore = `<div class="summary-head"><div><strong>${escapeHtml(result.filename)}</strong><span>${escapeHtml(result.model)}</span></div><span class="object-total">${Number(result.total || 0).toLocaleString()}<small>${totalLabel}</small></span></div><div class="summary-metrics"><div><span>置信度</span><strong>${Number(result.confidence).toFixed(2)}</strong></div><div><span>IoU</span><strong>${Number(result.iou).toFixed(2)}</strong></div><div><span>类别</span><strong>${Object.keys(result.counts || {}).length}</strong></div><div><span>耗时</span><strong>${Number(result.inference || 0).toFixed(1)}ms</strong></div>${sampleMetric}</div><div class="class-stats">${confidenceBars(result.counts || {})}</div>`;
-  if (isVideoResult) {
+  if (useUnifiedLayout) {
     return `<div class="detection-detail ${embedded ? 'embedded' : ''} video-detail">${previewPane}<div class="detail-summary video-side-panel">${summaryCore}${detailActions}</div>${risk}${objectEventTable}${frameTable}${keyFrameGrid}</div>`;
   }
   return `<div class="detection-detail ${embedded ? 'embedded' : ''} ${isCamera ? 'camera-detail' : ''}">${previewPane}<div class="detail-summary">${summaryCore}${risk}${objectEventTable}${frameTable}${keyFrameGrid}${detailActions}</div></div>`;
@@ -1890,7 +1907,7 @@ startCamera = async function startCameraWithDetection() {
     const height = video.videoHeight || 480;
     canvas.width = width;
     canvas.height = height;
-    canvas.getContext('2d')?.drawImage(video, 0, 0, width, height);
+    drawCameraSourceFrame(video, canvas, width, height);
 
     const socket = new WebSocket(backendWebSocketUrl('/api/detection/camera'));
     camera.socket = socket;
@@ -1974,9 +1991,7 @@ function sendCameraFrame() {
   camera.captureCanvas = canvas;
   canvas.width = targetSize;
   canvas.height = targetSize;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  ctx.drawImage(video, 0, 0, targetSize, targetSize);
+  if (!drawCameraSourceFrame(video, canvas, targetSize, targetSize)) return;
   const data = canvas.toDataURL('image/jpeg', 0.6).split(',', 2)[1];
   camera.sending = true;
   socket.send(JSON.stringify({ type: 'frame', data }));
@@ -2074,7 +2089,13 @@ stopCamera = function stopCameraWithDetection(options = {}) {
 function afterRender() {
   if (state.page === 'chat') {
     const scroll = $('#chat-scroll');
-    if (scroll) scroll.scrollTop = scroll.scrollHeight;
+    const lastMessage = state.chat.messages.at(-1);
+    const lastLength = String(lastMessage?.content || '').length + (lastMessage?.attachments?.length || 0);
+    const shouldScroll = state.chat.messages.length !== state.renderMeta.chatMessageCount
+      || lastLength !== state.renderMeta.chatLastMessageLength;
+    if (scroll && shouldScroll) scroll.scrollTop = scroll.scrollHeight;
+    state.renderMeta.chatMessageCount = state.chat.messages.length;
+    state.renderMeta.chatLastMessageLength = lastLength;
     const textarea = $('#chat-input');
     if (textarea) {
       textarea.style.height = 'auto';
@@ -2090,8 +2111,11 @@ function afterRender() {
     updateCameraStatsDom();
   }
   const pageContent = $('#page-content');
-  pageContent?.classList.add('page-enter');
-  setTimeout(() => pageContent?.classList.remove('page-enter'), 320);
+  if (pageContent && state.renderMeta.lastPage !== state.page) {
+    pageContent.classList.add('page-enter');
+    setTimeout(() => pageContent.classList.remove('page-enter'), 320);
+  }
+  state.renderMeta.lastPage = state.page;
   // style range inputs so filled portion is colored and remainder is black
   $$('input[type="range"]').forEach(input => setRangeFill(input));
 }

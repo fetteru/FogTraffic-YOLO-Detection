@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 def assess_risk(visibility: dict, traffic: dict) -> dict:
-    """Assess rain/fog traffic management risk on a 1-5 warning scale."""
+    """Assess rain/fog traffic management risk on a 1-4 warning scale."""
     visibility_score = int(visibility.get("visibility_score") or 0)
     density_score = int(traffic.get("density_score") or 0)
     vehicle_count = int(traffic.get("traffic_count_for_risk") or traffic.get("vehicle_count") or 0)
@@ -40,7 +40,7 @@ def assess_risk(visibility: dict, traffic: dict) -> dict:
         "risk_score": _risk_score(level, visibility_score, density_score),
         "alert_required": level >= 3,
         "reasons": reasons,
-        "suggestions": _suggestions(level, visibility, traffic),
+        "suggestions": _suggestions(level),
         "level_rule": _level_rule(level),
     }
 
@@ -55,59 +55,69 @@ def _risk_level(
     vulnerable_count: int,
     avg_confidence,
 ) -> int:
-    very_low_visibility = visibility_score >= 3
+    normal_visibility = visibility_score <= 0
+    rainy_or_low_visibility = visibility_score >= 1
     low_visibility = visibility_score >= 2
-    many_vehicles = density_score >= 3
-    medium_vehicles = density_score >= 2
-    has_extra_risk = (
-        vulnerable_count > 0
-        or large_vehicle_count >= 6
-        or large_vehicle_ratio >= 0.35
-        or (avg_confidence is not None and avg_confidence < 0.4)
-    )
-    many_large_vehicles = large_vehicle_count >= 8 or large_vehicle_ratio >= 0.45
-    several_large_vehicles = large_vehicle_count >= 4 or large_vehicle_ratio >= 0.3
+    very_low_visibility = visibility_score >= 3
+    medium_vehicles = density_score >= 2 or vehicle_count >= 8
+    many_vehicles = density_score >= 3 or vehicle_count >= 25
+    large_vehicle_attention = large_vehicle_count >= 4 or large_vehicle_ratio >= 0.3
+    large_vehicle_high = large_vehicle_count >= 8 or large_vehicle_ratio >= 0.45
+    extra_risk = vulnerable_count > 0 or (avg_confidence is not None and avg_confidence < 0.4)
 
-    if very_low_visibility and many_vehicles and has_extra_risk:
-        return 5
-    if very_low_visibility and many_vehicles:
+    # 4: immediate action only when traffic pressure and visibility risk are both high.
+    if very_low_visibility and (many_vehicles or (medium_vehicles and large_vehicle_high)):
         return 4
-    if very_low_visibility and many_large_vehicles:
+    if low_visibility and many_vehicles and large_vehicle_attention:
         return 4
-    if (very_low_visibility and medium_vehicles) or (low_visibility and many_vehicles):
+
+    # 3: focused attention. Either rain/low visibility plus many vehicles, or
+    # very low visibility even with a small traffic flow.
+    if very_low_visibility:
         return 3
-    if low_visibility and several_large_vehicles:
+    if low_visibility and many_vehicles:
         return 3
-    if several_large_vehicles and medium_vehicles:
+    if rainy_or_low_visibility and many_vehicles:
         return 3
-    if several_large_vehicles:
+    if low_visibility and medium_vehicles and large_vehicle_attention:
+        return 3
+    if medium_vehicles and large_vehicle_high:
+        return 3
+    if extra_risk and low_visibility and medium_vehicles:
+        return 3
+
+    # 2: attention. Rain/fog/low-light with fewer vehicles, or normal visibility
+    # but a moderate traffic/large-vehicle signal.
+    if rainy_or_low_visibility:
         return 2
-    if medium_vehicles or low_visibility or vehicle_count >= 8:
+    if medium_vehicles or large_vehicle_attention:
         return 2
+
+    # 1: ordinary/normal monitoring.
+    if normal_visibility:
+        return 1
     return 1
 
 
 def _risk_name(level: int) -> str:
     return {
-        1: "普通雨天",
-        2: "车辆较多",
-        3: "低能见度预警",
-        4: "高风险预警",
-        5: "严重预警",
-    }.get(level, "严重预警")
+        1: "常态监测",
+        2: "关注提示",
+        3: "预警管控",
+        4: "应急处置",
+    }.get(level, "应急处置")
 
 
 def _risk_score(level: int, visibility_score: int, density_score: int) -> int:
-    return level * 10 + visibility_score * 2 + density_score
+    return min(100, level * 20 + visibility_score * 3 + density_score * 2)
 
 
 def _level_rule(level: int) -> str:
     return {
-        1: "普通雨天或画面质量轻微下降，车辆较少，保持常规观察。",
-        2: "车辆数量较多，或画面可见性下降，需要持续关注车流变化。",
-        3: "可见度较低且车辆不少，或大车数量达到关注阈值，建议进入预警观察。",
-        4: "可见度很低且车辆很多，或可见度很低且大车较多，存在追尾、排队和制动距离不足风险。",
-        5: "可见度很低、车辆很多，并伴随大型车辆、行人/非机动车或低置信度等额外风险。",
+        1: "常态监测：画面可见性整体稳定，车辆较少或交通压力不高，保持常规巡检。",
+        2: "关注提示：存在雨雾、低光或画面质量下降特征，但车辆较少；或车流/大车数量需要持续观察。",
+        3: "预警管控：雨雾或可见度下降且车辆较多，或可见度很低即使车辆较少，也需要提高巡检频率并发布降速提醒。",
+        4: "应急处置：车辆很多且可见度很低，存在追尾、排队、制动距离不足等高风险，应考虑限速、分流或现场处置。",
     }.get(level, "未知规则")
 
 
@@ -129,16 +139,16 @@ def _reasons(
     if visibility_score >= 3:
         reasons.append("画面可见度很低，存在明显低光、低对比或雾化特征。")
     elif visibility_score >= 2:
-        reasons.append("画面可见度下降，目标边界和远距离车辆识别可能受影响。")
+        reasons.append("画面可见度下降，远距离车辆和目标边界识别可能受影响。")
     elif visibility_score >= 1:
-        reasons.append("画面存在轻微雨雾、低光或摄像头画质下降特征。")
+        reasons.append("画面存在雨雾、低光或摄像头画质下降特征。")
     else:
         reasons.append("当前画面可见性指标整体较稳定。")
 
-    if density_score >= 3:
+    if density_score >= 3 or vehicle_count >= 25:
+        reasons.append(f"车辆数量很多，风险统计车辆数约为 {vehicle_count}。")
+    elif density_score >= 2 or vehicle_count >= 8:
         reasons.append(f"车辆数量较多，风险统计车辆数约为 {vehicle_count}。")
-    elif density_score >= 2:
-        reasons.append(f"车辆数量中等，风险统计车辆数约为 {vehicle_count}。")
     else:
         reasons.append(f"车辆较少，风险统计车辆数约为 {vehicle_count}。")
 
@@ -156,28 +166,23 @@ def _reasons(
     return reasons
 
 
-def _suggestions(level: int, visibility: dict, traffic: dict) -> list[str]:
+def _suggestions(level: int) -> list[str]:
     if level <= 1:
         return [
-            "保持常规监控，记录当前雨天或摄像头画面质量。",
-            "暂不建议发布强预警，可继续观察车流变化。",
+            "保持常规监控，记录当前摄像头画面质量和车流变化。",
+            "暂不建议发布预警，可继续观察后续雨雾和车流变化。",
         ]
     if level == 2:
         return [
-            "建议关注该路段车流密度变化，必要时提醒保持车距。",
-            "若后续可见度继续下降或车辆继续增多，应提升预警等级。",
+            "建议进入关注提示状态，持续观察该路段雨雾、低光或车流变化。",
+            "如能见度继续下降、车辆继续增多或大车占比升高，应提升到预警管控。",
         ]
     if level == 3:
         return [
-            "建议进入预警观察状态，提示驾驶员降低车速、保持车距。",
-            "建议保留标注视频和关键检测数据，供人工复核。",
-        ]
-    if level == 4:
-        return [
-            "建议发布高风险预警，提醒减速慢行并关注排队、追尾风险。",
-            "必要时安排交通管理人员关注该路段，评估是否需要限速或分流。",
+            "建议进入预警管控状态，提高巡检频率，提示驾驶员降低车速并保持车距。",
+            "建议保留标注视频、关键帧和结构化检测数据，供人工复核和后续研判。",
         ]
     return [
-        "建议发布严重预警，优先采取限速、分流或临时管控措施。",
-        "建议人工复核现场情况，重点关注大型车辆、弱势交通参与者和连续低能见度路段。",
+        "建议立即采取交通管理措施，发布降速、保持车距或分流提示。",
+        "必要时安排交通管理人员关注现场，评估是否需要限速、分流或临时管控。",
     ]
