@@ -13,12 +13,12 @@ from app.services.user_service import user_service
 
 
 router = APIRouter(prefix="/api/auth", tags=["认证"])
-bearer_scheme = HTTPBearer()
+bearer_scheme = HTTPBearer(auto_error=False)
 logger = get_logger(__name__)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ):
     """Resolve the current user from a JWT bearer token."""
@@ -27,6 +27,9 @@ async def get_current_user(
         detail="无效的认证凭据",
         headers={"WWW-Authenticate": "Bearer"},
     )
+    if credentials is None:
+        raise credentials_exception
+
     try:
         token = credentials.credentials
         payload = decode_access_token(token)

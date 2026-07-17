@@ -38,6 +38,7 @@ def setup_test_database():
     Base.metadata.create_all(bind=test_engine)
     yield
     Base.metadata.drop_all(bind=test_engine)
+    test_engine.dispose()
     if TEST_DATABASE_PATH.exists():
         TEST_DATABASE_PATH.unlink()
 
