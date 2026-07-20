@@ -1,0 +1,7 @@
+export function demoScene(seed='traffic') {
+  let value=[...seed].reduce((a,c)=>a+c.charCodeAt(0),1);const rand=()=>{value=(value*9301+49297)%233280;return value/233280};
+  const roads=Array.from({length:4},(_,i)=>{const y=70+i*95+rand()*25;return `<path d="M-40 ${y} C170 ${y-70} 430 ${y+85} 780 ${y-15}" fill="none" stroke="${i%2?'#56616b':'#65717a'}" stroke-width="${22+rand()*24}" opacity=".86"/><path d="M-40 ${y} C170 ${y-70} 430 ${y+85} 780 ${y-15}" fill="none" stroke="#d4d9d9" stroke-width="2" stroke-dasharray="12 10" opacity=".5"/>`}).join('');
+  const cars=Array.from({length:22},(_,i)=>{const x=rand()*700,y=rand()*410,w=9+rand()*15,h=5+rand()*8;return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2" fill="${['#f4c95d','#53d1ff','#ff7e8f','#f8fafc'][i%4]}" transform="rotate(${rand()*50-25} ${x} ${y})"/>`}).join('');
+  const svg=`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 440"><defs><linearGradient id="b" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#193647"/><stop offset="1" stop-color="#4e625c"/></linearGradient><filter id="n"><feTurbulence baseFrequency=".45" numOctaves="2"/><feColorMatrix values="1 0 0 0 0 0 1 0 0 0 0 0 1 0 0 0 0 0 .12 0"/></filter></defs><rect width="720" height="440" fill="url(#b)"/><rect width="720" height="440" filter="url(#n)" opacity=".5"/>${roads}${cars}</svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+}
