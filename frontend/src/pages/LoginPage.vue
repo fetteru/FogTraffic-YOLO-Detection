@@ -2,7 +2,7 @@
 import { computed, reactive, ref } from 'vue';
 import { ShieldCheck } from 'lucide-vue-next';
 import { api, setToken } from '../services/api';
-import { state, toast } from '../state';
+import { resetUserScopedState, state, toast } from '../state';
 
 const emit = defineEmits(['login']);
 const mode = ref('login');
@@ -35,6 +35,7 @@ async function login() {
       },
       timeout: 30000,
     });
+    resetUserScopedState();
     setToken(data.access_token);
     state.token = data.access_token;
     state.user = data.user || { username: form.username, display_name: form.username };

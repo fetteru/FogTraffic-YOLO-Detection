@@ -12,7 +12,7 @@ import DashboardPage from './pages/DashboardPage.vue';
 import HistoryPage from './pages/HistoryPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
 import { api, setToken } from './services/api';
-import { navItems, state, toast } from './state';
+import { navItems, resetUserScopedState, state, toast } from './state';
 
 const groupedNav = computed(() => {
   const groups = [];
@@ -38,16 +38,23 @@ function logout() {
   setToken('');
   state.token = '';
   state.user = null;
+  resetUserScopedState();
   toast('已安全退出');
 }
 
 async function loadUser() {
   if (!state.token) return;
   try {
-    state.user = await api('/api/auth/me', { method: 'GET', timeout: 30000 });
+    const user = await api('/api/auth/me', { method: 'GET', timeout: 30000 });
+    if (state.user?.id && user?.id && state.user.id !== user.id) {
+      resetUserScopedState();
+    }
+    state.user = user;
   } catch {
     setToken('');
     state.token = '';
+    state.user = null;
+    resetUserScopedState();
   }
 }
 

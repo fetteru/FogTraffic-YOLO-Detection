@@ -8,6 +8,15 @@ const persistedSettings = (() => {
   }
 })();
 
+function welcomeMessage() {
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: '你好，我是 **FogTraffic 多智能体平台**。你可以上传图片并提问，例如“检测车辆数量，并解释 IoU”。',
+    time: new Date().toISOString(),
+  };
+}
+
 export const state = reactive({
   page: location.hash?.replace('#', '') || 'chat',
   token: localStorage.getItem('rsod_token') || '',
@@ -21,14 +30,7 @@ export const state = reactive({
   },
   toast: [],
   chat: {
-    messages: [
-      {
-        id: crypto.randomUUID(),
-        role: 'assistant',
-        content: '你好，我是 **FogTraffic 多智能体平台**。你可以上传图片并提问，例如“检测车辆数量，并解释 IoU”。',
-        time: new Date().toISOString(),
-      },
-    ],
+    messages: [welcomeMessage()],
     input: '',
     attachments: [],
     streaming: false,
@@ -81,6 +83,38 @@ export function resetAgentFlow() {
     { id: 'analysis', label: 'Analysis', detail: '统计分析', status: 'idle' },
     { id: 'summarize', label: 'Summarize', detail: '结果汇总', status: 'idle' },
   ];
+}
+
+export function resetUserScopedState() {
+  state.chat.messages = [welcomeMessage()];
+  state.chat.input = '';
+  state.chat.attachments = [];
+  state.chat.streaming = false;
+  state.chat.controller = null;
+  state.chat.trace = [{ time: '刚刚', type: 'system', title: 'Agent 就绪', detail: 'Supervisor、Detection、QA/RAG、Analysis 已就绪' }];
+  resetAgentFlow();
+
+  state.detection.files = [];
+  state.detection.results = [];
+  state.detection.selected = 0;
+  state.detection.running = false;
+  state.detection.camera = {
+    active: false,
+    connecting: false,
+    connected: false,
+    sending: false,
+    paused: false,
+    error: '',
+    status: '未连接',
+    startedAt: 0,
+    stats: { frames: 0, objects: 0, fps: 0, inference: 0 },
+    detections: [],
+    samples: [],
+  };
+
+  state.tasks = [];
+  state.history = [];
+  state.dashboard = null;
 }
 
 export function addTrace(type, title, detail) {

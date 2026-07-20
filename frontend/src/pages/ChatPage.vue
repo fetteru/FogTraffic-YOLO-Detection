@@ -76,6 +76,10 @@ function modeFromTool(tool = '', attachments = []) {
   return attachments.length > 1 ? 'batch' : 'single';
 }
 
+function chatSessionId() {
+  return `vue-chat-${state.user?.id || state.user?.username || 'guest'}`;
+}
+
 function normalizeToolResults(result, attachments, mode) {
   const list = result?.items || result?.results;
   if (Array.isArray(list)) {
@@ -124,7 +128,7 @@ async function sendChatMessage() {
 
   try {
     await streamChat(
-      { message: text || '请检测附件并给出分析。', files: attachments, sessionId: 'vue-chat' },
+      { message: text || '请检测附件并给出分析。', files: attachments, sessionId: chatSessionId() },
       event => {
         if (controller.signal.aborted || activeRunId !== runId) return;
         handleAgentEvent(event);
