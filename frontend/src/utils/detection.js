@@ -6,7 +6,7 @@ export function fileItems(files) {
     name: file.name,
     size: file.size,
     type: file.type || (file.name.toLowerCase().endsWith('.zip') ? 'application/zip' : ''),
-    preview: file.type?.startsWith('image/') ? URL.createObjectURL(file) : '',
+    preview: file.type?.startsWith('image/') || file.type?.startsWith('video/') ? URL.createObjectURL(file) : '',
   }));
 }
 
@@ -56,10 +56,25 @@ export function normalizeDetection(payload = {}, fileItem = {}, mode = 'single',
   };
 }
 
-export async function pollVideo(taskId) {
+function abortError() {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function wait(ms, signal) {
+  if (signal?.aborted) return Promise.reject(abortError());
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      reject(abortError());
+    }, { once: true });
+  });
+}
+
+export async function pollVideo(taskId, signal) {
   for (;;) {
-    await new Promise(resolve => setTimeout(resolve, 1200));
-    const status = await api(`/api/detection/video/status/${taskId}`, { method: 'GET', timeout: 30000 });
+    await wait(1200, signal);
+    const status = await api(`/api/detection/video/status/${taskId}`, { method: 'GET', timeout: 30000, signal });
     if (status.status === 'completed') return status.result;
     if (status.status === 'failed') throw new Error(status.error || '视频检测失败');
   }
@@ -87,8 +102,9 @@ export async function detectFiles(mode, items, options = {}) {
     body: form,
     headers: { 'X-File-Name': encodeURIComponent(firstName || 'upload') },
     timeout: isVideo ? 300000 : 120000,
+    signal: options.signal,
   });
-  const payload = isVideo ? await pollVideo(response.task_id) : response;
+  const payload = isVideo ? await pollVideo(response.task_id, options.signal) : response;
   const list = payload.items || payload.results;
   if (Array.isArray(list)) return list.map((item, index) => normalizeDetection(item, items[index], mode, index));
   return [normalizeDetection(payload, first, isVideo ? 'video' : mode, 0)];

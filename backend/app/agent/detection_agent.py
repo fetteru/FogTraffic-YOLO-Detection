@@ -419,7 +419,15 @@ def _plan_agent_tasks(lowered_message: str, image_paths: list[str]) -> list[str]
     tasks: list[str] = []
     if image_paths:
         tasks.append("detection")
-    if _looks_like_stats_question(lowered_message) or _looks_like_history_question(lowered_message) or _looks_like_user_question(lowered_message):
+    wants_platform_analysis = (
+        _looks_like_history_question(lowered_message)
+        or _looks_like_user_question(lowered_message)
+        or (
+            _looks_like_stats_question(lowered_message)
+            and not (image_paths and _looks_like_detection_count_question(lowered_message))
+        )
+    )
+    if wants_platform_analysis:
         tasks.append("analysis")
     if _looks_like_knowledge_question(lowered_message):
         tasks.append("qa")
@@ -503,16 +511,79 @@ def _looks_like_stats_question(text: str) -> bool:
     return any(word in text for word in ["统计", "看板", "多少次", "检测了多少", "任务数", "目标数"])
 
 
+def _looks_like_detection_count_question(text: str) -> bool:
+    return any(
+        word in text
+        for word in [
+            "多少辆",
+            "多少车",
+            "车辆数量",
+            "车数量",
+            "火车数量",
+            "汽车数量",
+            "卡车数量",
+            "大车数量",
+            "目标数量",
+            "几个目标",
+            "多少个目标",
+            "有多少",
+        ]
+    )
+
+
 def _looks_like_history_question(text: str) -> bool:
     return any(word in text for word in ["历史", "记录", "最近检测", "检测记录"])
 
 
 def _looks_like_user_question(text: str) -> bool:
-    return any(word in text for word in ["用户", "管理员", "账号", "人员"])
+    normalized = text.replace("当前用户问题", "")
+    return any(
+        word in normalized
+        for word in [
+            "用户列表",
+            "注册用户",
+            "平台用户",
+            "有哪些用户",
+            "所有用户",
+            "查询用户",
+            "用户管理",
+            "账号列表",
+            "账户列表",
+            "管理员账号",
+            "人员列表",
+        ]
+    )
 
 
 def _looks_like_knowledge_question(text: str) -> bool:
-    return any(word in text for word in ["iou", "yolo", "map", "precision", "recall", "遥感", "知识库", "什么是"])
+    return any(
+        word in text
+        for word in [
+            "iou",
+            "yolo",
+            "map",
+            "precision",
+            "recall",
+            "nms",
+            "rag",
+            "遥感",
+            "知识库",
+            "什么是",
+            "预警",
+            "雨雾",
+            "可见度",
+            "大车",
+            "卡车",
+            "公交车",
+            "视频检测",
+            "摄像头",
+            "去重",
+            "重复统计",
+            "多智能体",
+            "agent",
+            "工作流",
+        ]
+    )
 
 
 def _format_knowledge_context(items: list[dict]) -> str:
@@ -538,17 +609,21 @@ def _fallback_answer(message: str, knowledge_context: str) -> str:
 
 def _summarize_multi_agent_results(message: str, tasks: list[str], results: dict) -> str:
     parts: list[str] = []
+    lowered = message.lower()
 
     detection = results.get("detection") or {}
     if detection:
         parts.append(detection.get("text") or "检测任务已完成。")
         data = detection.get("data") or {}
-        if any(word in message for word in ["车辆数量", "车数量", "多少辆", "车辆数", "多少车"]):
+        specific_count = _specific_class_count_answer(lowered, data)
+        if specific_count:
+            parts.append(specific_count)
+        elif _looks_like_detection_count_question(lowered):
             vehicle_count = _vehicle_count_from_summary(data)
             parts.append(f"按当前类别统计，这次检测到的车辆相关目标约为 {vehicle_count} 个。")
 
     analysis = results.get("analysis") or {}
-    if analysis:
+    if analysis and _should_include_analysis_text(lowered, detection, analysis):
         parts.append(analysis.get("text") or "分析任务已完成。")
 
     qa = results.get("qa") or {}
@@ -583,10 +658,49 @@ def _format_detection_followup_answer(message: str, detection_text: str, summary
                 "它等于两个框交集面积除以并集面积，数值越高说明框得越准；"
                 "在检测里，IoU 阈值常用于判断预测框是否算命中，以及过滤重复框。"
             )
-    if any(word in message for word in ["车辆数量", "车数量", "多少辆", "车辆数"]):
+    specific_count = _specific_class_count_answer(lowered, summary)
+    if specific_count:
+        parts.append(specific_count)
+    elif _looks_like_detection_count_question(lowered):
         vehicle_count = _vehicle_count_from_summary(summary)
         parts.append(f"按当前类别统计，这次检测到的车辆相关目标约为 {vehicle_count} 个。")
     return "\n\n".join(part for part in parts if part)
+
+
+def _should_include_analysis_text(lowered_message: str, detection: dict, analysis: dict) -> bool:
+    if not detection:
+        return True
+    tool_name = analysis.get("tool")
+    if tool_name == "query_users":
+        return _looks_like_user_question(lowered_message)
+    if tool_name == "query_detection_statistics" and _looks_like_detection_count_question(lowered_message):
+        return False
+    return True
+
+
+def _specific_class_count_answer(message: str, summary: dict) -> str:
+    if not _looks_like_detection_count_question(message):
+        return ""
+
+    counts = summary.get("class_counts") or {}
+    normalized_counts = {str(name).lower(): int(count) for name, count in counts.items()}
+    targets = [
+        ("火车", "train", ["火车", "train"]),
+        ("卡车", "truck", ["卡车", "货车", "truck"]),
+        ("公交车", "bus", ["公交", "公交车", "大巴", "bus"]),
+        ("汽车", "car", ["汽车", "小车", "轿车", "car"]),
+        ("摩托车", "motorcycle", ["摩托", "摩托车", "motorcycle", "motorbike"]),
+    ]
+    for label, class_name, keywords in targets:
+        if any(keyword in message for keyword in keywords):
+            count = normalized_counts.get(class_name, 0)
+            if count:
+                return f"按模型类别统计，这次检测到的{label}数量为 {count} 个。"
+            detected = "，".join(f"{name} x {count}" for name, count in counts.items()) or "暂无类别统计"
+            if class_name == "train":
+                return f"当前检测结果里没有 train/火车类别；模型这次识别到的是：{detected}。如果你说的是画面中的道路车辆总数，可按车辆相关目标约 {_vehicle_count_from_summary(summary)} 个参考。"
+            return f"当前检测结果里没有{label}类别；已识别类别为：{detected}。"
+    return ""
 
 
 def _vehicle_count_from_summary(summary: dict) -> int:

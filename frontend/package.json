@@ -8,8 +8,7 @@
     "dev": "vite --host 127.0.0.1 --port 5174 --open",
     "start": "vite --host 127.0.0.1 --port 5174 --open",
     "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1 --port 4174",
-    "demo": "node server.mjs"
+    "preview": "vite preview --host 127.0.0.1 --port 4174"
   },
   "engines": {
     "node": ">=18"

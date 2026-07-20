@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -41,8 +42,13 @@ async def chat_stream(
                     session_id=session_id,
                     user_id=current_user.id,
                 ):
+                    if await request.is_disconnected():
+                        break
                     yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
-                yield "data: [DONE]\n\n"
+                if not await request.is_disconnected():
+                    yield "data: [DONE]\n\n"
+            except asyncio.CancelledError:
+                raise
             finally:
                 _cleanup_files(tmp_paths)
 

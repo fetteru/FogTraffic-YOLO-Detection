@@ -1717,6 +1717,148 @@ button > svg {
   stroke-width: 1.8;
 }
 
+.drop-zone.has-files {
+  display: flex;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 12px;
+  padding: 12px;
+  text-align: left;
+}
+
+.upload-preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.upload-preview-head strong {
+  display: block;
+  color: #14213a;
+  font-size: 14px;
+}
+
+.upload-preview-head p {
+  max-width: 230px;
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #71829b;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upload-preview-head > span {
+  flex: none;
+  color: #38bdf8;
+  font-size: 11px;
+  font-weight: 850;
+}
+
+.upload-preview-single {
+  position: relative;
+  min-height: 245px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(36, 55, 86, 0.12);
+  border-radius: 14px;
+  background: #06101f;
+}
+
+.upload-preview-single img,
+.upload-preview-single video {
+  width: 100%;
+  height: 100%;
+  min-height: 245px;
+  max-height: 330px;
+  object-fit: contain;
+  background: #06101f;
+}
+
+.upload-preview-single figcaption,
+.upload-preview-grid figcaption {
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  min-height: 28px;
+  padding: 7px 9px;
+  overflow: hidden;
+  border-radius: 9px;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(4, 10, 20, 0.72);
+  font-size: 11px;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  backdrop-filter: blur(8px);
+}
+
+.upload-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  max-height: 330px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.upload-preview-grid figure {
+  position: relative;
+  aspect-ratio: 1.25;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid rgba(36, 55, 86, 0.12);
+  border-radius: 12px;
+  background: #06101f;
+}
+
+.upload-preview-grid img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.upload-file-card {
+  min-height: 180px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid rgba(36, 55, 86, 0.12);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(56, 189, 248, 0.08), rgba(255, 255, 255, 0.62));
+}
+
+.upload-file-icon {
+  flex: none;
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border-radius: 16px;
+  color: #0284c7;
+  background: #e0f2fe;
+  font-size: 13px;
+  font-weight: 950;
+  box-shadow: inset 0 0 0 1px rgba(14, 165, 233, 0.18);
+}
+
+.upload-file-card strong {
+  display: block;
+  color: #14213a;
+  font-size: 14px;
+  word-break: break-word;
+}
+
+.upload-file-card p {
+  margin: 4px 0 0;
+  color: #71829b;
+  font-size: 12px;
+}
+
 .raw-data-toggle {
   padding: 16px 18px 18px;
 }
@@ -1860,15 +2002,18 @@ button > svg {
 .agent-side {
   max-height: calc(100vh - 112px);
   height: calc(100vh - 112px);
-  grid-template-rows: minmax(460px, 1fr) minmax(170px, auto);
+  min-height: 0;
+  grid-template-rows: minmax(330px, 0.58fr) minmax(230px, 0.42fr);
   align-content: stretch;
+  overflow: hidden;
 }
 
 .agent-status-card {
-  min-height: 460px;
+  min-height: 0;
   max-height: none;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
 }
 
 .agent-status-card .agent-flow {
@@ -1883,6 +2028,28 @@ button > svg {
 }
 
 .agent-status-card .agent-flow::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(56, 189, 248, 0.26);
+}
+
+.trace-card {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.trace-card .trace-list {
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 14px;
+}
+
+.trace-card .trace-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.trace-card .trace-list::-webkit-scrollbar-thumb {
   border-radius: 999px;
   background: rgba(56, 189, 248, 0.26);
 }
@@ -1923,5 +2090,12 @@ input[type="range"]::-moz-range-progress {
   .send-button.icon-only {
     width: 48px;
     min-width: 48px;
+  }
+
+  .agent-side {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    grid-template-rows: none;
   }
 }

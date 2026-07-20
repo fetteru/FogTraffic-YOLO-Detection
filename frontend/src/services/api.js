@@ -86,23 +86,43 @@ export async function streamChat({ message, files = [], sessionId = 'default' },
   if (!response.ok || !response.body) throw new Error(`SSE 连接失败 (${response.status})`);
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
+  const abortError = () => new DOMException('The operation was aborted.', 'AbortError');
+  const cancelReader = () => {
+    try {
+      reader.cancel();
+    } catch {
+      // The reader may already be closed by the browser.
+    }
+  };
+  if (signal?.aborted) {
+    cancelReader();
+    throw abortError();
+  }
+  signal?.addEventListener('abort', cancelReader, { once: true });
   let buffer = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-    const events = buffer.split('\n\n');
-    buffer = events.pop() || '';
-    for (const event of events) {
-      const dataLine = event.split('\n').find(line => line.startsWith('data:'));
-      if (!dataLine) continue;
-      const raw = dataLine.slice(5).trim();
-      if (raw === '[DONE]') continue;
-      try {
-        onEvent(JSON.parse(raw));
-      } catch {
-        // Ignore malformed SSE lines from interrupted streams.
+  try {
+    while (true) {
+      if (signal?.aborted) throw abortError();
+      const { done, value } = await reader.read();
+      if (signal?.aborted) throw abortError();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const events = buffer.split('\n\n');
+      buffer = events.pop() || '';
+      for (const event of events) {
+        if (signal?.aborted) throw abortError();
+        const dataLine = event.split('\n').find(line => line.startsWith('data:'));
+        if (!dataLine) continue;
+        const raw = dataLine.slice(5).trim();
+        if (raw === '[DONE]') continue;
+        try {
+          onEvent(JSON.parse(raw));
+        } catch {
+          // Ignore malformed SSE lines from interrupted streams.
+        }
       }
     }
+  } finally {
+    signal?.removeEventListener('abort', cancelReader);
   }
 }

@@ -66,12 +66,21 @@ class KnowledgeRetriever:
 
 
 def _tokenize(text: str) -> dict[str, int]:
-    tokens = re.findall(r"[\w\u4e00-\u9fff]+", text.lower())
     counts: dict[str, int] = {}
-    for token in tokens:
+
+    def add(token: str, weight: int = 1) -> None:
         if len(token) <= 1:
-            continue
-        counts[token] = counts.get(token, 0) + 1
+            return
+        counts[token] = counts.get(token, 0) + weight
+
+    for token in re.findall(r"[a-z0-9_]+|[\u4e00-\u9fff]+", text.lower()):
+        if re.fullmatch(r"[\u4e00-\u9fff]+", token):
+            add(token, 2 if len(token) <= 8 else 1)
+            for size in (2, 3, 4):
+                for index in range(0, max(0, len(token) - size + 1)):
+                    add(token[index : index + size])
+        else:
+            add(token, 2)
     return counts
 
 

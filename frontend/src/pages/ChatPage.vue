@@ -11,6 +11,7 @@ import { addTrace, resetAgentFlow, state, toast, updateAgentFlow } from '../stat
 const fileInput = ref(null);
 const scrollRef = ref(null);
 const quickOpen = ref(false);
+let activeRunId = null;
 
 function scrollBottom() {
   nextTick(() => {
@@ -79,12 +80,15 @@ async function sendChatMessage() {
   addTrace('system', '意图分析', text || '附件检测请求');
   scrollBottom();
   const controller = new AbortController();
+  const runId = crypto.randomUUID();
+  activeRunId = runId;
   state.chat.controller = controller;
 
   try {
     await streamChat(
       { message: text || '请检测附件并给出分析。', files: attachments, sessionId: 'vue-chat' },
       event => {
+        if (controller.signal.aborted || activeRunId !== runId) return;
         handleAgentEvent(event);
         if (event.type === 'thinking') addTrace('system', '思考中', event.content || event.message || '正在分析请求');
         if (event.type === 'tool_start') addTrace('tool', '工具调用', event.tool || 'tool');
@@ -102,11 +106,21 @@ async function sendChatMessage() {
       controller.signal,
     );
   } catch (error) {
-    if (error.name !== 'AbortError') assistant.content = `请求失败：${error.message}`;
+    if (error.name === 'AbortError') {
+      if (activeRunId === runId) {
+        assistant.content = assistant.content || '已停止生成。';
+        addTrace('system', '已停止', '用户停止了本次对话生成');
+      }
+    } else {
+      assistant.content = `请求失败：${error.message}`;
+    }
   } finally {
-    assistant.streaming = false;
-    state.chat.streaming = false;
-    state.chat.controller = null;
+    if (activeRunId === runId) {
+      activeRunId = null;
+      assistant.streaming = false;
+      state.chat.streaming = false;
+      state.chat.controller = null;
+    }
     scrollBottom();
   }
 }
@@ -117,11 +131,16 @@ async function quickDetect(mode, items) {
   const assistant = { id: crypto.randomUUID(), role: 'assistant', content: `正在执行${label}...`, time: new Date().toISOString(), streaming: true };
   state.chat.messages.push(user, assistant);
   state.chat.streaming = true;
+  const controller = new AbortController();
+  const runId = crypto.randomUUID();
+  activeRunId = runId;
+  state.chat.controller = controller;
   resetAgentFlow();
   updateAgentFlow({ node: 'supervisor', status: 'done', detail: `路由决策：${mode}` });
   updateAgentFlow({ node: 'detection', status: 'running', detail: '正在调用 YOLO 检测工具' });
   try {
-    const results = await detectFiles(mode, items, state.settings);
+    const results = await detectFiles(mode, items, { ...state.settings, signal: controller.signal });
+    if (controller.signal.aborted || activeRunId !== runId) return;
     const total = results.reduce((sum, item) => sum + Number(item.total || 0), 0);
     assistant.content = `${label}完成，共处理 ${results.length} 个结果，累计发现 ${total} 个目标。`;
     assistant.result = results[0];
@@ -129,18 +148,44 @@ async function quickDetect(mode, items) {
     updateAgentFlow({ node: 'summarize', status: 'done', detail: '结果已整理' });
     toast(`${label}完成`);
   } catch (error) {
-    assistant.content = `检测失败：${error.message}`;
-    updateAgentFlow({ node: 'detection', status: 'error', detail: error.message });
+    if (error.name === 'AbortError') {
+      if (activeRunId === runId) {
+        assistant.content = assistant.content === `正在执行${label}...` ? '已停止检测。' : assistant.content;
+        addTrace('system', '已停止', '用户停止了本次快捷检测');
+        state.chat.agentFlow.forEach(item => {
+          if (item.status === 'running') item.status = 'stopped';
+        });
+      }
+    } else {
+      assistant.content = `检测失败：${error.message}`;
+      updateAgentFlow({ node: 'detection', status: 'error', detail: error.message });
+    }
   } finally {
-    assistant.streaming = false;
-    state.chat.streaming = false;
+    if (activeRunId === runId) {
+      activeRunId = null;
+      assistant.streaming = false;
+      state.chat.streaming = false;
+      state.chat.controller = null;
+    }
     scrollBottom();
   }
 }
 
 function stopChat() {
-  state.chat.controller?.abort();
+  const controller = state.chat.controller;
+  if (controller && !controller.signal.aborted) controller.abort();
+  activeRunId = null;
   state.chat.streaming = false;
+  state.chat.controller = null;
+  state.chat.agentFlow.forEach(item => {
+    if (item.status === 'running') item.status = 'stopped';
+  });
+  const current = [...state.chat.messages].reverse().find(item => item.role === 'assistant' && item.streaming);
+  if (current) {
+    current.streaming = false;
+    current.content = current.content || '已停止生成。';
+  }
+  addTrace('system', '已停止', '用户停止了当前对话任务');
 }
 </script>
 
@@ -205,7 +250,7 @@ function stopChat() {
       <section class="panel trace-card">
         <div class="panel-title"><div><strong>执行轨迹</strong><span>最近 Agent 事件</span></div></div>
         <div class="trace-list">
-          <article v-for="item in state.chat.trace.slice(0, 7)" :key="`${item.title}-${item.time}`">
+          <article v-for="(item, index) in state.chat.trace" :key="`${item.title}-${item.time}-${index}`">
             <i :class="['trace-dot', item.type]"></i>
             <div><strong>{{ item.title }}</strong><p>{{ item.detail }}</p><small>{{ item.time }}</small></div>
           </article>

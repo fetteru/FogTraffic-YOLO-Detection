@@ -21,6 +21,8 @@ let lastCaptureMeta = null;
 
 const selectedResult = computed(() => state.detection.results[state.detection.selected] || null);
 const isCameraMode = computed(() => state.detection.mode === 'camera');
+const uploadedFiles = computed(() => state.detection.files || []);
+const firstUploadedFile = computed(() => uploadedFiles.value[0] || null);
 const cameraStatus = computed(() => {
   const camera = state.detection.camera;
   if (camera.error) return camera.error;
@@ -63,6 +65,20 @@ function onFiles(event) {
   event.target.value = '';
   state.detection.files = state.detection.mode === 'batch' ? items.slice(0, 30) : items.slice(0, 1);
   state.detection.results = [];
+}
+
+function isImageFile(item) {
+  return item?.type?.startsWith('image/');
+}
+
+function isVideoFile(item) {
+  return item?.type?.startsWith('video/');
+}
+
+function uploadSummary() {
+  if (!uploadedFiles.value.length) return '';
+  if (state.detection.mode === 'batch') return `${uploadedFiles.value.length} 张图片待检测`;
+  return firstUploadedFile.value?.name || '';
 }
 
 async function runDetection() {
@@ -474,9 +490,39 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
           >{{ { single: '单图', batch: '批量', zip: 'ZIP', video: '视频', camera: '摄像头' }[mode] }}</button>
         </div>
         <div v-if="state.detection.mode !== 'camera'" class="drop-zone" :class="{ 'has-files': state.detection.files.length }" @click="chooseFiles">
-          <span class="upload-mark" aria-hidden="true"><Upload :size="76" /></span>
-          <strong>{{ state.detection.files.length ? state.detection.files.map(item => item.name).join('，') : '点击选择文件' }}</strong>
-          <p>使用后端真实 YOLO 接口检测</p>
+          <template v-if="!uploadedFiles.length">
+            <span class="upload-mark" aria-hidden="true"><Upload :size="76" /></span>
+            <strong>点击选择文件</strong>
+            <p>使用后端真实 YOLO 接口检测</p>
+          </template>
+          <template v-else>
+            <div class="upload-preview-head">
+              <div>
+                <strong>待检测文件</strong>
+                <p>{{ uploadSummary() }}</p>
+              </div>
+              <span>点击可重新选择</span>
+            </div>
+            <div v-if="state.detection.mode === 'batch'" class="upload-preview-grid">
+              <figure v-for="item in uploadedFiles" :key="item.name">
+                <img v-if="isImageFile(item) && item.preview" :src="item.preview" :alt="item.name" />
+                <span v-else class="upload-file-icon">IMG</span>
+                <figcaption>{{ item.name }}</figcaption>
+              </figure>
+            </div>
+            <figure v-else-if="isImageFile(firstUploadedFile) && firstUploadedFile.preview" class="upload-preview-single">
+              <img :src="firstUploadedFile.preview" :alt="firstUploadedFile.name" />
+              <figcaption>{{ firstUploadedFile.name }}</figcaption>
+            </figure>
+            <figure v-else-if="isVideoFile(firstUploadedFile) && firstUploadedFile.preview" class="upload-preview-single video-upload-preview" @click.stop>
+              <video :src="firstUploadedFile.preview" muted controls preload="metadata"></video>
+              <figcaption>{{ firstUploadedFile.name }}</figcaption>
+            </figure>
+            <div v-else class="upload-file-card">
+              <span class="upload-file-icon">{{ state.detection.mode === 'zip' ? 'ZIP' : 'FILE' }}</span>
+              <div><strong>{{ firstUploadedFile.name }}</strong><p>已选择，点击此区域可重新选择文件</p></div>
+            </div>
+          </template>
         </div>
         <div v-else class="camera-box">
           <div class="camera-stage">
