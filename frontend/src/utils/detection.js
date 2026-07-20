@@ -106,6 +106,11 @@ export async function detectFiles(mode, items, options = {}) {
   });
   const payload = isVideo ? await pollVideo(response.task_id, options.signal) : response;
   const list = payload.items || payload.results;
-  if (Array.isArray(list)) return list.map((item, index) => normalizeDetection(item, items[index], mode, index));
+  if (Array.isArray(list)) {
+    return list.map((item, index) => {
+      const sourceItem = mode === 'batch' ? items[index] : {};
+      return normalizeDetection(item, sourceItem, mode, index);
+    });
+  }
   return [normalizeDetection(payload, first, isVideo ? 'video' : mode, 0)];
 }

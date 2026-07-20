@@ -1,6 +1,6 @@
 <script setup>
-import { nextTick, ref } from 'vue';
-import { Paperclip, Send, Square, Trash2, Download } from 'lucide-vue-next';
+import { nextTick, onActivated, onBeforeUnmount, onMounted, ref } from 'vue';
+import { ChevronLeft, ChevronRight, Paperclip, Send, Square, Trash2, Download } from 'lucide-vue-next';
 import AgentFlow from '../components/AgentFlow.vue';
 import DetectionResult from '../components/DetectionResult.vue';
 import { streamChat } from '../services/api';
@@ -15,8 +15,24 @@ let activeRunId = null;
 
 function scrollBottom() {
   nextTick(() => {
-    if (scrollRef.value) scrollRef.value.scrollTop = scrollRef.value.scrollHeight;
+    const scroller = scrollRef.value;
+    if (!scroller) return;
+    const sync = () => {
+      scroller.scrollTop = scroller.scrollHeight;
+    };
+    sync();
+    requestAnimationFrame(sync);
+    window.setTimeout(sync, 80);
   });
+}
+
+function activateChatLayout() {
+  document.body.classList.add('chat-page-active');
+  scrollBottom();
+}
+
+function deactivateChatLayout() {
+  document.body.classList.remove('chat-page-active');
 }
 
 function chooseFiles(mode = 'attach') {
@@ -60,6 +76,28 @@ function modeFromTool(tool = '', attachments = []) {
   return attachments.length > 1 ? 'batch' : 'single';
 }
 
+function normalizeToolResults(result, attachments, mode) {
+  const list = result?.items || result?.results;
+  if (Array.isArray(list)) {
+    return list.map((item, index) => normalizeDetection(item, mode === 'batch' ? attachments[index] : {}, mode, index));
+  }
+  return [normalizeDetection(result, attachments[0] || {}, mode, 0)];
+}
+
+function setMessageResults(message, results) {
+  message.results = results;
+  message.resultIndex = 0;
+  message.result = results[0] || null;
+}
+
+function selectMessageResult(message, index) {
+  const count = message.results?.length || 0;
+  if (!count) return;
+  const next = (index + count) % count;
+  message.resultIndex = next;
+  message.result = message.results[next];
+}
+
 async function sendChatMessage() {
   const text = state.chat.input.trim();
   if ((!text && !state.chat.attachments.length) || state.chat.streaming) return;
@@ -95,7 +133,8 @@ async function sendChatMessage() {
         if (event.type === 'tool_result') {
           addTrace('result', '工具返回', event.message || event.tool || 'tool');
           if (event.result && String(event.tool || '').startsWith('detect_')) {
-            assistant.result = normalizeDetection(event.result, attachments[0] || {}, modeFromTool(event.tool, attachments), 0);
+            const mode = modeFromTool(event.tool, attachments);
+            setMessageResults(assistant, normalizeToolResults(event.result, attachments, mode));
           }
         }
         if (event.type === 'token') assistant.content += event.content || '';
@@ -143,7 +182,7 @@ async function quickDetect(mode, items) {
     if (controller.signal.aborted || activeRunId !== runId) return;
     const total = results.reduce((sum, item) => sum + Number(item.total || 0), 0);
     assistant.content = `${label}完成，共处理 ${results.length} 个结果，累计发现 ${total} 个目标。`;
-    assistant.result = results[0];
+    setMessageResults(assistant, results);
     updateAgentFlow({ node: 'detection', status: 'done', detail: `检测完成：${total} 个目标` });
     updateAgentFlow({ node: 'summarize', status: 'done', detail: '结果已整理' });
     toast(`${label}完成`);
@@ -187,6 +226,10 @@ function stopChat() {
   }
   addTrace('system', '已停止', '用户停止了当前对话任务');
 }
+
+onMounted(activateChatLayout);
+onActivated(activateChatLayout);
+onBeforeUnmount(deactivateChatLayout);
 </script>
 
 <template>
@@ -212,7 +255,21 @@ function stopChat() {
             </div>
             <div v-if="message.role === 'assistant'" class="message-author"><strong>FogTraffic-YOLO-Detection</strong><span>{{ message.streaming ? '正在思考' : 'YOLOv11 智能体' }}</span></div>
             <div class="markdown-body" v-html="markdown(message.content || '')"></div>
-            <DetectionResult v-if="message.result" :result="message.result" embedded />
+            <div v-if="message.result" class="message-result-wrap">
+              <div v-if="message.results?.length > 1" class="result-navigator message-result-navigator">
+                <button class="result-nav-button" type="button" title="上一张" @click="selectMessageResult(message, (message.resultIndex || 0) - 1)">
+                  <ChevronLeft :size="18" />
+                </button>
+                <div class="result-nav-meta">
+                  <strong>{{ (message.resultIndex || 0) + 1 }} / {{ message.results.length }}</strong>
+                  <span>{{ message.result.filename }}</span>
+                </div>
+                <button class="result-nav-button" type="button" title="下一张" @click="selectMessageResult(message, (message.resultIndex || 0) + 1)">
+                  <ChevronRight :size="18" />
+                </button>
+              </div>
+              <DetectionResult :result="message.result" embedded />
+            </div>
             <div class="message-actions"><time>{{ formatTime(message.time) }}</time></div>
           </div>
           <div v-if="message.role === 'user'" class="avatar user-avatar">{{ (state.user?.display_name || state.user?.username || 'U').slice(0, 1).toUpperCase() }}</div>

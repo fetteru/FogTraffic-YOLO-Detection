@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
-import { Play, Upload } from 'lucide-vue-next';
+import { ChevronLeft, ChevronRight, Play, Upload } from 'lucide-vue-next';
 import DetectionResult from '../components/DetectionResult.vue';
 import { detectFiles, fileItems, normalizeDetection } from '../utils/detection';
 import { state, toast } from '../state';
@@ -20,6 +20,9 @@ let captureCanvas = null;
 let lastCaptureMeta = null;
 
 const selectedResult = computed(() => state.detection.results[state.detection.selected] || null);
+const resultCount = computed(() => state.detection.results.length);
+const canNavigateResults = computed(() => resultCount.value > 1);
+const selectedResultPosition = computed(() => (resultCount.value ? state.detection.selected + 1 : 0));
 const isCameraMode = computed(() => state.detection.mode === 'camera');
 const uploadedFiles = computed(() => state.detection.files || []);
 const firstUploadedFile = computed(() => uploadedFiles.value[0] || null);
@@ -41,6 +44,20 @@ const primaryButtonText = computed(() => {
 function rangeProgress(value, min, max) {
   const percent = ((Number(value) - min) / (max - min)) * 100;
   return `${Math.min(100, Math.max(0, percent))}%`;
+}
+
+function selectResult(index) {
+  if (!resultCount.value) return;
+  const next = (index + resultCount.value) % resultCount.value;
+  state.detection.selected = next;
+}
+
+function previousResult() {
+  selectResult(state.detection.selected - 1);
+}
+
+function nextResult() {
+  selectResult(state.detection.selected + 1);
 }
 
 function chooseFiles() {
@@ -559,13 +576,27 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
         </div>
       </section>
       <section class="panel result-panel">
-        <DetectionResult v-if="selectedResult" :result="selectedResult" />
+        <div v-if="selectedResult" class="result-panel-inner">
+          <div v-if="canNavigateResults" class="result-navigator">
+            <button class="result-nav-button" type="button" title="上一张" @click="previousResult">
+              <ChevronLeft :size="18" />
+            </button>
+            <div class="result-nav-meta">
+              <strong>{{ selectedResultPosition }} / {{ resultCount }}</strong>
+              <span>{{ selectedResult.filename }}</span>
+            </div>
+            <button class="result-nav-button" type="button" title="下一张" @click="nextResult">
+              <ChevronRight :size="18" />
+            </button>
+          </div>
+          <DetectionResult :result="selectedResult" />
+        </div>
         <div v-else class="empty-state"><strong>暂无检测结果</strong><p>选择文件或开启摄像头后开始检测。</p></div>
       </section>
       <aside class="panel result-gallery">
         <div class="panel-title"><div><strong>结果列表</strong><span>{{ state.detection.results.length }} 个结果</span></div></div>
         <div class="gallery-list">
-          <div v-for="(result, index) in state.detection.results" :key="result.id" :class="['gallery-item', { active: state.detection.selected === index }]" @click="state.detection.selected = index">
+          <div v-for="(result, index) in state.detection.results" :key="result.id" :class="['gallery-item', { active: state.detection.selected === index }]" @click="selectResult(index)">
             <div class="gallery-thumb">
               <span v-if="result.videoUrl" class="video-thumb">▶</span>
               <img v-else-if="result.preview" :src="result.preview" alt="" />
