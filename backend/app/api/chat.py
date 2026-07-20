@@ -70,11 +70,10 @@ async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFi
         message = str(form.get("message") or form.get("content") or "").strip()
         session_id = str(form.get("session_id") or "default")
         for key in ("files", "file"):
-            attachment_names.extend(
-                item.filename or "upload"
-                for item in form.getlist(key)
-                if isinstance(item, UploadFile)
-            )
+            for item in form.getlist(key):
+                if isinstance(item, UploadFile):
+                    files.append(item)
+                    attachment_names.append(item.filename or "upload")
     elif "application/json" in content_type:
         payload = await request.json()
         message = str(payload.get("message") or payload.get("content") or "").strip()
@@ -88,7 +87,7 @@ async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFi
         message = (
             f"{message}\n\n"
             f"用户附加了文件：{', '.join(attachment_names)}。"
-            "普通对话通道不会读取或上传原文件；如需识别图片/视频，请使用单图检测、视频检测或 ZIP 检测功能。"
+            "附件仅交给后端 YOLO 检测工具处理；大模型只能看到结构化检测摘要，不能接收原始图片、视频或 base64。"
         ).strip()
 
     if not message:

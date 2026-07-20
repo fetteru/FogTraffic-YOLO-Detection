@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class UserRegister(BaseModel):
     """User registration request."""
 
-    username: str = Field(..., min_length=3, max_length=50, description="Username")
+    username: str = Field(..., min_length=2, max_length=50, description="Username")
     email: str = Field(..., description="Email")
     password: str = Field(..., min_length=6, max_length=100, description="Password")
 

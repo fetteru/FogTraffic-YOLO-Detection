@@ -49,8 +49,17 @@ class KnowledgeRetriever:
             {
                 "source": doc["source"],
                 "chunk_id": doc["chunk_id"],
+                "title": doc.get("title", ""),
+                "header_context": doc.get("header_context", ""),
                 "content": doc["content"],
                 "score": round(score, 4),
+                "similarity": round(score, 4),
+                "metadata": {
+                    "source": doc["source"],
+                    "title": doc.get("title", ""),
+                    "header_context": doc.get("header_context", ""),
+                    "chunk_index": doc["chunk_id"],
+                },
             }
             for score, doc in scored[:top_k]
         ]

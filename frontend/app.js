@@ -184,8 +184,15 @@ const state = {
     quickActionsOpen: false,
     streaming: false,
     controller: null,
+    agentFlow: [
+      { id: 'supervisor', label: 'Supervisor', detail: '等待用户输入', status: 'idle' },
+      { id: 'detection', label: 'Detection', detail: 'YOLO 检测', status: 'idle' },
+      { id: 'qa', label: 'QA / RAG', detail: '知识库检索', status: 'idle' },
+      { id: 'analysis', label: 'Analysis', detail: '统计与历史', status: 'idle' },
+      { id: 'summarize', label: 'Summarize', detail: '结果汇总', status: 'idle' },
+    ],
     trace: [
-      { time: '刚刚', type: 'system', title: 'Agent 就绪', detail: 'ReAct Agent 与 3 个检测工具已绑定' }
+      { time: '刚刚', type: 'system', title: 'Agent 就绪', detail: '多智能体调度与检测工具已绑定' }
     ]
   },
   detection: {
@@ -859,10 +866,10 @@ function renderChat() {
   return `<div class="chat-page-grid"><section class="chat-main panel">
     <div class="chat-header"><div><span class="online-dot"></span><strong>目标检测智能体</strong><small>自然语言通道 · SSE 流式响应</small></div><div class="chat-header-actions"><button class="btn btn-ghost btn-sm" data-action="clear-chat">${icon('trash')}清空会话</button><button class="btn btn-ghost btn-sm" data-action="export-chat">${icon('download')}导出</button></div></div>
     <div class="chat-scroll" id="chat-scroll">${state.chat.messages.map(renderChatMessage).join('')}</div>
-    <div class="chat-composer-wrap">${state.chat.quickActionsOpen ? `<div class="quick-actions chat-tools-menu"><button data-action="quick-detect" data-mode="single">${icon('scan')}<span>单图检测</span><small>选择一张图片后直接检测</small></button><button data-action="quick-detect" data-mode="batch">${icon('dataset')}<span>批量检测</span><small>多张图片并行处理</small></button><button data-action="quick-detect" data-mode="video">${icon('play')}<span>视频检测</span><small>上传视频并轮询结果</small></button><button data-action="quick-detect" data-mode="zip">${icon('file')}<span>ZIP 检测</span><small>自动解压图片检测</small></button><button data-action="attach-chat">${icon('paperclip')}<span>普通附件</span><small>只附加到对话消息</small></button><button data-page="training">${icon('train')}<span>训练状态</span><small>查看实时指标</small></button></div>` : ''}
+    <div class="chat-composer-wrap">${state.chat.quickActionsOpen ? `<div class="quick-actions chat-tools-menu"><button data-action="quick-detect" data-mode="single">${icon('scan')}<span>单图检测</span><small>选择一张图片后直接检测</small></button><button data-action="quick-detect" data-mode="batch">${icon('dataset')}<span>批量检测</span><small>多张图片并行处理</small></button><button data-action="quick-detect" data-mode="video">${icon('play')}<span>视频检测</span><small>上传视频并轮询结果</small></button><button data-action="quick-detect" data-mode="zip">${icon('file')}<span>ZIP 检测</span><small>自动解压图片检测</small></button><button data-action="attach-chat">${icon('paperclip')}<span>普通附件</span><small>随问题上传检测</small></button><button data-page="training">${icon('train')}<span>训练状态</span><small>查看实时指标</small></button></div>` : ''}
       ${state.chat.attachments.length ? `<div class="pending-attachments">${state.chat.attachments.map((item, index) => `<div>${item.type?.startsWith('image/') ? `<img src="${item.preview}" alt="${escapeHtml(item.name)}">` : icon('file')}<span>${escapeHtml(item.name)}</span><button data-action="remove-chat-attachment" data-index="${index}">${icon('close')}</button></div>`).join('')}</div>` : ''}
       <div class="chat-composer"><button class="composer-icon ${state.chat.quickActionsOpen ? 'active' : ''}" data-action="toggle-chat-tools" title="上传与快捷检测">${icon('paperclip')}</button><textarea id="chat-input" rows="1" placeholder="输入消息，或点击左侧按钮选择上传类型…" ${state.chat.streaming ? 'disabled' : ''}>${escapeHtml(state.chat.input)}</textarea>${state.chat.streaming ? `<button class="send-button stop" data-action="stop-chat">${icon('stop')}<span>停止</span></button>` : `<button class="send-button" data-action="send-chat" ${!state.chat.input.trim() && !state.chat.attachments.length ? 'disabled' : ''}>${icon('send')}<span>发送</span></button>`}</div><div class="composer-hint"><span>Enter 发送 · Shift + Enter 换行</span><span>点击左侧按钮选择图片、视频或 ZIP 检测</span></div></div>
-  </section><aside class="agent-side"><section class="panel agent-status-card"><div class="panel-title"><div><strong>Agent 运行状态</strong><span>ReAct 调度器</span></div>${statusBadge('healthy')}</div><div class="agent-core"><div class="agent-core-orbit"><span>${ICONS.bot}</span><i></i><i></i><i></i></div><div><strong>3 个工具已就绪</strong><p>意图识别、工具调用与结果整理均正常</p></div></div><div class="tool-list"><div>${icon('scan')}<span><strong>detect_single</strong><small>单图目标检测</small></span><i class="tool-ready"></i></div><div>${icon('dataset')}<span><strong>detect_batch</strong><small>多图批量检测</small></span><i class="tool-ready"></i></div><div>${icon('file')}<span><strong>detect_zip</strong><small>ZIP 解压检测</small></span><i class="tool-ready"></i></div></div></section>
+  </section><aside class="agent-side">${agentFlowHtml()}
     <section class="panel trace-card"><div class="panel-title"><div><strong>执行轨迹</strong><span>最近 Agent 事件</span></div><button class="icon-button small" data-action="clear-trace">${icon('trash')}</button></div><div class="trace-list">${state.chat.trace.slice(0, 7).map(item => `<article><i class="trace-dot ${item.type}"></i><div><strong>${escapeHtml(item.title)}</strong><p>${escapeHtml(item.detail)}</p><small>${escapeHtml(item.time)}</small></div></article>`).join('')}</div></section>
     <section class="panel context-card"><div class="panel-title"><div><strong>当前上下文</strong><span>会话配置</span></div></div><div class="context-row"><span>默认模型</span><strong>${escapeHtml(state.settings.defaultModel)}</strong></div><div class="context-row"><span>置信度阈值</span><strong>${state.settings.confidence.toFixed(2)}</strong></div><div class="context-row"><span>IoU 阈值</span><strong>${state.settings.iou.toFixed(2)}</strong></div><div class="context-row"><span>传输方式</span><strong>SSE Stream</strong></div></section></aside></div>`;
 }
@@ -1427,12 +1434,59 @@ function addTrace(type, title, detail) {
   if (state.chat.trace.length > 20) state.chat.trace.length = 20;
 }
 
+function resetAgentFlow() {
+  state.chat.agentFlow = [
+    { id: 'supervisor', label: 'Supervisor', detail: '意图识别与路由', status: 'idle' },
+    { id: 'detection', label: 'Detection', detail: '目标检测', status: 'idle' },
+    { id: 'qa', label: 'QA / RAG', detail: '知识库检索', status: 'idle' },
+    { id: 'analysis', label: 'Analysis', detail: '统计分析', status: 'idle' },
+    { id: 'summarize', label: 'Summarize', detail: '结果汇总', status: 'idle' },
+  ];
+}
+
+function updateAgentFlow(event = {}) {
+  const alias = {
+    parallel: 'supervisor',
+    parallel_detection_qa: 'supervisor',
+    detection_agent: 'detection',
+    qa_agent: 'qa',
+    analysis_agent: 'analysis',
+    supervisor_summarize: 'summarize',
+  };
+  const id = alias[event.node] || event.node || 'supervisor';
+  const item = state.chat.agentFlow.find(node => node.id === id);
+  if (!item) return;
+  item.status = event.status || 'running';
+  item.detail = event.detail || event.title || item.detail;
+  if (id === 'supervisor' && event.node === 'parallel') {
+    item.detail = event.status === 'done' ? '并行任务完成' : '正在并行调度';
+  }
+}
+
+function agentFlowHtml() {
+  const active = state.chat.agentFlow.some(item => item.status === 'running');
+  const done = state.chat.agentFlow.filter(item => item.status === 'done').length;
+  return `<section class="panel agent-status-card"><div class="panel-title"><div><strong>智能体调用流程</strong><span>${active ? '正在执行' : '等待任务'} · ${done}/${state.chat.agentFlow.length}</span></div>${statusBadge('healthy')}</div><div class="agent-flow">${state.chat.agentFlow.map((item, index) => `<article class="agent-step ${item.status}"><i>${index + 1}</i><div><strong>${escapeHtml(item.label)}</strong><p>${escapeHtml(item.detail)}</p></div><span>${item.status === 'done' ? '完成' : item.status === 'running' ? '运行中' : item.status === 'error' ? '异常' : '待命'}</span></article>`).join('')}</div><div class="flow-note">Supervisor 负责路由；Detection、QA/RAG、Analysis 可按任务并行执行，最终由 Summarize 汇总。</div></section>`;
+}
+
 async function streamChatRequest(payload, onEvent, signal) {
-  const headers = { 'Content-Type': 'application/json', ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) };
+  const headers = { ...(state.token ? { Authorization: `Bearer ${state.token}` } : {}) };
+  let body;
+  if (payload.files?.length) {
+    body = new FormData();
+    body.append('message', payload.message || '');
+    body.append('session_id', payload.session_id || 'default');
+    payload.files.forEach(item => {
+      if (item?.file) body.append('files', item.file, item.name || item.file.name || 'upload');
+    });
+  } else {
+    headers['Content-Type'] = 'application/json';
+    body = JSON.stringify(payload);
+  }
   const response = await fetch(apiUrl('/api/chat/stream'), {
     method: 'POST',
     headers,
-    body: JSON.stringify(payload),
+    body,
     signal
   });
   if (!response.ok || !response.body) throw new Error(`SSE 连接失败 (${response.status})`);
@@ -1490,11 +1544,20 @@ async function sendChat() {
   state.chat.streaming = true;
   const controller = new AbortController();
   state.chat.controller = controller;
+  resetAgentFlow();
   addTrace('system', '意图分析', text || '附件检测请求');
   renderShell();
 
   const handleEvent = event => {
     if (event.type === 'token') assistantMessage.content += event.content || '';
+    if (event.type === 'multi_agent') {
+      updateAgentFlow(event);
+      addTrace(
+        event.status === 'error' ? 'error' : event.node === 'qa' ? 'tool' : event.node === 'summarize' ? 'result' : 'system',
+        event.title || event.node || 'Agent',
+        event.detail || event.message || ''
+      );
+    }
     if (event.type === 'thinking') {
       addTrace('system', '思考中', event.content || event.message || '正在分析请求');
     }
@@ -1528,11 +1591,12 @@ async function sendChat() {
 
   try {
     const attachmentNote = attachments.length
-      ? `\n\n【附件说明】用户本次附加了文件：${attachments.map(item => item.name).join(', ')}。出于 token 和隐私控制，普通对话不会上传原文件；如需识别图片或视频，请引导用户点击单图检测、视频检测或 ZIP 检测。`
+      ? `\n\n【附件说明】用户本次附加了文件：${attachments.map(item => item.name).join(', ')}。请先由后端 YOLO 检测附件，再根据结构化检测结果回答用户问题；不要把原始图片、视频或 base64 交给大模型。`
       : '';
     const resultSummary = latestDetectionSummaryForChat();
     await streamChatRequest({
       message: `${text || '请根据已有检测结果进行分析，或进行普通对话。'}${attachmentNote}${resultSummary ? `\n\n${resultSummary}` : ''}`,
+      files: attachments,
       has_attachment: attachments.length > 0,
       filename: attachments[0]?.name,
       result_summary_only: Boolean(resultSummary),

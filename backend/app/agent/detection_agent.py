@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from contextvars import ContextVar
 from pathlib import Path
@@ -165,6 +166,33 @@ class DetectionAgent:
             query_users,
         ]
         self._executor = None
+        self._chat_llm = None
+
+    def _get_chat_llm(self):
+        provider = settings.LLM_PROVIDER.lower()
+        provider_config = _provider_config(provider)
+        api_key = provider_config["api_key"]
+
+        if not api_key:
+            return None
+        if self._chat_llm is not None:
+            return self._chat_llm
+
+        try:
+            from langchain_openai import ChatOpenAI
+        except Exception as exc:
+            logger.warning("Chat LLM dependency unavailable: %s", exc)
+            return None
+
+        self._chat_llm = ChatOpenAI(
+            api_key=api_key,
+            model=provider_config["model"],
+            base_url=provider_config["base_url"],
+            temperature=0.35,
+            streaming=False,
+            timeout=30,
+        )
+        return self._chat_llm
 
     def _get_executor(self):
         provider = settings.LLM_PROVIDER.lower()
@@ -227,7 +255,7 @@ class DetectionAgent:
             if direct:
                 for event in direct:
                     yield event
-                final_text = direct[-1].get("content", "") if direct else ""
+                final_text = "".join(event.get("content", "") for event in direct if event.get("type") == "token")
                 if final_text:
                     conversation_memory.append(session_id, "assistant", final_text)
                 yield {"type": "done"}
@@ -237,18 +265,20 @@ class DetectionAgent:
             context = build_context_prompt(history, knowledge_context)
             enriched_message = f"{context}\n\n当前用户问题：{message}" if context else message
 
-            executor = self._get_executor()
-            if executor is None:
+            llm = self._get_chat_llm()
+            if llm is None:
                 output = _fallback_answer(message, knowledge_context)
             else:
                 try:
                     yield {"type": "thinking", "content": "正在调用大模型组织回答..."}
-                    result = await executor.ainvoke({"input": enriched_message})
-                    output = result.get("output", "")
+                    response = await llm.ainvoke(enriched_message)
+                    output = str(getattr(response, "content", response) or "").strip()
+                    if not output:
+                        output = _fallback_answer(message, knowledge_context)
                 except Exception as exc:
                     logger.error("Agent chat failed: %s", exc, exc_info=True)
-                    yield {"type": "error", "content": f"Agent 调用失败：{exc}"}
-                    return
+                    yield {"type": "thinking", "content": "大模型回答失败，已切换为本地项目助手回复。"}
+                    output = _fallback_answer(message, knowledge_context)
 
             for chunk in _chunk_text(output):
                 yield {"type": "token", "content": chunk}
@@ -264,79 +294,57 @@ class DetectionAgent:
         user_id: int | None,
     ) -> list[dict] | None:
         lowered = message.lower()
-        if image_paths:
-            tool_name = _detect_tool_name(image_paths)
-            yield_events = [_tool_start(tool_name, "正在调用检测工具...")]
-            try:
-                if tool_name == "detect_video_file":
-                    raw = detect_video_file.invoke({"video_path": image_paths[0]})
-                elif tool_name == "detect_zip_images":
-                    raw = detect_zip_images.invoke({"zip_path": image_paths[0]})
-                elif len(image_paths) == 1:
-                    raw = detect_single_image.invoke({"image_path": image_paths[0]})
-                else:
-                    raw = detect_batch_images.invoke({"image_paths": image_paths})
-                summary = json.loads(raw)
-                text = _format_detection_text(summary)
-                yield_events.append(_tool_result(tool_name, text, summary))
-                yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
-                return yield_events
-            except Exception as exc:
-                return [{"type": "error", "content": f"检测工具调用失败：{exc}"}]
+        tasks = _plan_agent_tasks(lowered, image_paths)
+        if not tasks:
+            return None
 
-        if _looks_like_stats_question(lowered):
-            yield_events = [_tool_start("query_detection_statistics", "正在查询检测统计...")]
-            raw = query_detection_statistics.invoke({"days": 30})
-            data = json.loads(raw)
-            text = (
-                f"近 30 天共有 {data.get('total_tasks', 0)} 个检测任务，"
-                f"处理 {data.get('total_images', 0)} 张图片，"
-                f"检测到 {data.get('total_objects', 0)} 个目标，"
-                f"平均推理耗时 {data.get('avg_inference_time', 0)} ms。"
+        route = ",".join(tasks)
+        yield_events = [
+            _agent_event("supervisor", "done", "Supervisor", f"路由决策：{route}", {"tasks": tasks})
+        ]
+        if len(tasks) > 1:
+            yield_events.append(
+                _agent_event("parallel", "running", "Parallel Executor", "正在并行调度专业智能体", {"tasks": tasks})
             )
-            yield_events.append(_tool_result("query_detection_statistics", text, data))
-            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
-            return yield_events
 
-        if _looks_like_history_question(lowered):
-            yield_events = [_tool_start("query_recent_history", "正在查询最近检测历史...")]
-            raw = query_recent_history.invoke({"limit": 5})
-            data = json.loads(raw)
-            items = data.get("items", [])
-            lines = [f"最近共有 {data.get('total', 0)} 条检测记录，最新 {len(items)} 条如下："]
-            for item in items:
-                lines.append(
-                    f"- #{item.get('id')} {item.get('task_type')} / {item.get('status')} / 目标 {item.get('total_objects', 0)}"
-                )
-            text = "\n".join(lines)
-            yield_events.append(_tool_result("query_recent_history", text, data))
-            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
-            return yield_events
+        try:
+            running = []
+            if "detection" in tasks:
+                tool_name = _detect_tool_name(image_paths)
+                yield_events.append(_agent_event("detection", "running", "Detection Agent", "正在调用 YOLO 检测工具", {"tool": tool_name}))
+                yield_events.append(_tool_start(tool_name, "正在调用 YOLO 检测工具..."))
+                running.append(("detection", asyncio.to_thread(_run_detection_tool, image_paths)))
+            if "analysis" in tasks:
+                yield_events.append(_agent_event("analysis", "running", "Analysis Agent", "正在查询检测统计或历史记录", {}))
+                running.append(("analysis", asyncio.to_thread(_run_analysis_tool, lowered)))
+            if "qa" in tasks:
+                yield_events.append(_agent_event("qa", "running", "QA Agent", "正在检索本地 RAG 知识库", {}))
+                yield_events.append(_tool_start("search_knowledge_base", "正在检索本地知识库..."))
+                running.append(("qa", asyncio.to_thread(_run_qa_tool, message)))
 
-        if _looks_like_user_question(lowered):
-            yield_events = [_tool_start("query_users", "正在查询用户信息...")]
-            raw = query_users.invoke({"keyword": ""})
-            data = json.loads(raw)
-            items = data.get("items", [])
-            text = "当前用户列表：\n" + "\n".join(
-                f"- {item.get('username')} ({item.get('email')}) 角色：{', '.join(item.get('roles') or []) or '无'}"
-                for item in items[:10]
-            )
-            yield_events.append(_tool_result("query_users", text, data))
-            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
-            return yield_events
+            gathered = await asyncio.gather(*(item[1] for item in running), return_exceptions=True)
+            results = {}
+            for (name, _), result in zip(running, gathered):
+                if isinstance(result, Exception):
+                    results[name] = {"error": str(result), "text": f"{name} Agent 执行失败：{result}"}
+                    yield_events.append(_agent_event(name, "error", _agent_title(name), str(result), {}))
+                    continue
+                results[name] = result
+                yield_events.append(_agent_event(name, "done", _agent_title(name), result.get("text", "执行完成"), result.get("data", {})))
+                if name == "detection":
+                    yield_events.append(_tool_result(result.get("tool", "detect_single_image"), result["text"], result.get("data", {})))
+                elif name == "qa":
+                    yield_events.append(_tool_result("search_knowledge_base", "已找到相关知识片段", result.get("data", {})))
 
-        if _looks_like_knowledge_question(lowered):
-            yield_events = [_tool_start("search_knowledge_base", "正在检索本地知识库...")]
-            raw = search_knowledge_base.invoke({"query": message})
-            data = json.loads(raw)
-            context = _format_knowledge_context(data.get("items", []))
-            text = _fallback_answer(message, context)
-            yield_events.append(_tool_result("search_knowledge_base", "已找到相关知识片段", data))
-            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(text))
+            if len(tasks) > 1:
+                yield_events.append(_agent_event("parallel", "done", "Parallel Executor", "并行任务已完成", {"tasks": tasks}))
+            final_text = _summarize_multi_agent_results(message, tasks, results)
+            yield_events.append(_agent_event("summarize", "done", "Supervisor Summarize", "已整合检测、分析和知识结果", {"has_knowledge": "qa" in results}))
+            yield_events.extend({"type": "token", "content": chunk} for chunk in _chunk_text(final_text))
             return yield_events
-
-        return None
+        except Exception as exc:
+            logger.error("Multi-agent direct flow failed: %s", exc, exc_info=True)
+            return [{"type": "error", "content": f"多智能体调用失败：{exc}"}]
 
 
 def _require_user_id() -> int:
@@ -386,6 +394,100 @@ def _tool_result(tool_name: str, message: str, result: dict) -> dict:
     }
 
 
+def _agent_event(node: str, status: str, title: str, detail: str, data: dict | None = None) -> dict:
+    return {
+        "type": "multi_agent",
+        "node": node,
+        "status": status,
+        "title": title,
+        "detail": detail,
+        "data": data or {},
+    }
+
+
+def _agent_title(name: str) -> str:
+    return {
+        "detection": "Detection Agent",
+        "analysis": "Analysis Agent",
+        "qa": "QA Agent",
+        "parallel": "Parallel Executor",
+        "summarize": "Supervisor Summarize",
+    }.get(name, name)
+
+
+def _plan_agent_tasks(lowered_message: str, image_paths: list[str]) -> list[str]:
+    tasks: list[str] = []
+    if image_paths:
+        tasks.append("detection")
+    if _looks_like_stats_question(lowered_message) or _looks_like_history_question(lowered_message) or _looks_like_user_question(lowered_message):
+        tasks.append("analysis")
+    if _looks_like_knowledge_question(lowered_message):
+        tasks.append("qa")
+    return tasks
+
+
+def _run_detection_tool(image_paths: list[str]) -> dict:
+    tool_name = _detect_tool_name(image_paths)
+    if tool_name == "detect_video_file":
+        raw = detect_video_file.invoke({"video_path": image_paths[0]})
+    elif tool_name == "detect_zip_images":
+        raw = detect_zip_images.invoke({"zip_path": image_paths[0]})
+    elif len(image_paths) == 1:
+        raw = detect_single_image.invoke({"image_path": image_paths[0]})
+    else:
+        raw = detect_batch_images.invoke({"image_paths": image_paths})
+    data = json.loads(raw)
+    return {
+        "tool": tool_name,
+        "data": data,
+        "text": _format_detection_text(data),
+    }
+
+
+def _run_qa_tool(message: str) -> dict:
+    raw = search_knowledge_base.invoke({"query": message})
+    data = json.loads(raw)
+    context = _format_knowledge_context(data.get("items", []))
+    return {
+        "data": data,
+        "context": context,
+        "text": "已检索到相关知识片段" if context else "知识库中暂未找到高相关内容",
+    }
+
+
+def _run_analysis_tool(lowered_message: str) -> dict:
+    if _looks_like_history_question(lowered_message):
+        raw = query_recent_history.invoke({"limit": 5})
+        data = json.loads(raw)
+        items = data.get("items", [])
+        lines = [f"最近共有 {data.get('total', 0)} 条检测记录，最新 {len(items)} 条如下："]
+        for item in items:
+            lines.append(
+                f"- #{item.get('id')} {item.get('task_type')} / {item.get('status')} / 目标 {item.get('total_objects', 0)}"
+            )
+        return {"tool": "query_recent_history", "data": data, "text": "\n".join(lines)}
+
+    if _looks_like_user_question(lowered_message):
+        raw = query_users.invoke({"keyword": ""})
+        data = json.loads(raw)
+        items = data.get("items", [])
+        text = "当前用户列表：\n" + "\n".join(
+            f"- {item.get('username')} ({item.get('email')}) 角色：{', '.join(item.get('roles') or []) or '无'}"
+            for item in items[:10]
+        )
+        return {"tool": "query_users", "data": data, "text": text}
+
+    raw = query_detection_statistics.invoke({"days": 30})
+    data = json.loads(raw)
+    text = (
+        f"近 30 天共有 {data.get('total_tasks', 0)} 个检测任务，"
+        f"处理 {data.get('total_images', 0)} 张图片，"
+        f"检测到 {data.get('total_objects', 0)} 个目标，"
+        f"平均推理耗时 {data.get('avg_inference_time', 0)} ms。"
+    )
+    return {"tool": "query_detection_statistics", "data": data, "text": text}
+
+
 def _detect_tool_name(paths: list[str]) -> str:
     suffix = Path(paths[0]).suffix.lower() if paths else ""
     if suffix == ".zip":
@@ -417,18 +519,82 @@ def _format_knowledge_context(items: list[dict]) -> str:
     if not items:
         return ""
     return "\n\n".join(
-        f"来源：{item.get('source')}#{item.get('chunk_id')}\n{item.get('content')}"
+        f"来源：{item.get('source')}#{item.get('chunk_id')} "
+        f"({item.get('header_context') or item.get('title') or '知识片段'}，相似度 {item.get('similarity', item.get('score', 0))})\n"
+        f"{item.get('content')}"
         for item in items
     )
 
 
 def _fallback_answer(message: str, knowledge_context: str) -> str:
     if knowledge_context:
-        return f"???????????????\n\n{knowledge_context}"
+        return f"我检索到的相关知识如下，可结合你的问题参考：\n\n{knowledge_context}"
     return (
         f"{PROJECT_INTRO.strip()}\n\n"
-        "???????????????????????????????????????IoU ? YOLO ?????"
-        "???????? YOLO ????????????????????????"
+        "我可以帮你做交通目标检测、解释 YOLO/IoU/mAP 等指标、查询历史检测统计，"
+        "也可以根据结构化检测结果分析雨雾低能见度交通风险。"
+    )
+
+
+def _summarize_multi_agent_results(message: str, tasks: list[str], results: dict) -> str:
+    parts: list[str] = []
+
+    detection = results.get("detection") or {}
+    if detection:
+        parts.append(detection.get("text") or "检测任务已完成。")
+        data = detection.get("data") or {}
+        if any(word in message for word in ["车辆数量", "车数量", "多少辆", "车辆数", "多少车"]):
+            vehicle_count = _vehicle_count_from_summary(data)
+            parts.append(f"按当前类别统计，这次检测到的车辆相关目标约为 {vehicle_count} 个。")
+
+    analysis = results.get("analysis") or {}
+    if analysis:
+        parts.append(analysis.get("text") or "分析任务已完成。")
+
+    qa = results.get("qa") or {}
+    if qa:
+        context = qa.get("context") or ""
+        if context:
+            parts.append(_fallback_answer(message, context))
+        elif "iou" in message.lower():
+            parts.append(
+                "IoU 是 Intersection over Union，中文通常叫交并比，用来衡量预测框和真实框的重叠程度。"
+                "IoU = 交集面积 / 并集面积，数值越高说明框得越准；在目标检测中常用于判断预测是否命中，以及配合 NMS 过滤重复框。"
+            )
+
+    if not parts:
+        parts.append(_fallback_answer(message, ""))
+
+    if len(tasks) > 1:
+        parts.insert(0, "多智能体并行处理完成：")
+    return "\n\n".join(parts)
+
+
+def _format_detection_followup_answer(message: str, detection_text: str, summary: dict) -> str:
+    parts = [detection_text]
+    lowered = message.lower()
+    if _looks_like_knowledge_question(lowered):
+        context = _format_knowledge_context(knowledge_retriever.search(message, top_k=2))
+        if context:
+            parts.append(_fallback_answer(message, context))
+        elif "iou" in lowered:
+            parts.append(
+                "IoU 是 Intersection over Union，表示预测框和真实框的重叠程度。"
+                "它等于两个框交集面积除以并集面积，数值越高说明框得越准；"
+                "在检测里，IoU 阈值常用于判断预测框是否算命中，以及过滤重复框。"
+            )
+    if any(word in message for word in ["车辆数量", "车数量", "多少辆", "车辆数"]):
+        vehicle_count = _vehicle_count_from_summary(summary)
+        parts.append(f"按当前类别统计，这次检测到的车辆相关目标约为 {vehicle_count} 个。")
+    return "\n\n".join(part for part in parts if part)
+
+
+def _vehicle_count_from_summary(summary: dict) -> int:
+    counts = summary.get("class_counts") or {}
+    return sum(
+        int(count)
+        for name, count in counts.items()
+        if str(name).lower() in {"car", "truck", "bus", "motorcycle", "motorbike", "bicycle", "van", "suv", "vehicle"}
     )
 
 
