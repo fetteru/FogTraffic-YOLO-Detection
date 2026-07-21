@@ -61,9 +61,14 @@ env/
 *.onnx
 *.engine
 *.weights
-models/
 weights/
 checkpoints/
+
+# 允许提交训练好的模型（backend/models/目录下的）
+!backend/models/
+backend/models/*
+!backend/models/**/
+!backend/models/**/*.pt
 
 # YOLOv11 特定
 runs/
