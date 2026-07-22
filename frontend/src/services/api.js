@@ -30,6 +30,12 @@ export function apiUrl(path) {
 }
 
 function formatApiError(payload, status) {
+  if (status === 403) {
+    const detail = typeof payload?.detail === 'string' ? payload.detail : '';
+    if (detail.includes('Permission required') || detail.includes('Administrator access required')) {
+      return '没有权限执行此操作，请联系管理员分配权限';
+    }
+  }
   if (Array.isArray(payload?.detail)) {
     return payload.detail.map(item => {
       const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : '';
@@ -89,7 +95,17 @@ export async function streamChat({ message, files = [], sessionId = 'default' },
     body,
     signal,
   });
-  if (!response.ok || !response.body) throw new Error(`SSE 连接失败 (${response.status})`);
+  if (!response.ok || !response.body) {
+    let message = `SSE 连接失败 (${response.status})`;
+    try {
+      const contentType = response.headers.get('content-type') || '';
+      const payload = contentType.includes('application/json') ? await response.json() : await response.text();
+      message = formatApiError(payload, response.status);
+    } catch {
+      // Keep the transport-level message if the error payload cannot be parsed.
+    }
+    throw new Error(message);
+  }
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   const abortError = () => new DOMException('The operation was aborted.', 'AbortError');

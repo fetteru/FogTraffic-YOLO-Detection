@@ -37,7 +37,6 @@ const firstUploadedFile = computed(() => uploadedFiles.value[0] || null);
 const modelOptions = computed(() => state.settings.models || []);
 const selectedModel = computed(() => modelOptions.value.find(item => item.key === state.settings.selectedModelKey) || null);
 const canSwitchModels = computed(() => hasPermission('detection:model:switch'));
-const canRunCurrentMode = computed(() => canUseDetectionMode(state.detection.mode));
 const cameraStatus = computed(() => {
   const camera = state.detection.camera;
   if (camera.error) return camera.error;
@@ -66,10 +65,6 @@ function hasPermission(permission) {
 
 function canUseDetectionMode(mode) {
   return hasPermission(DETECTION_MODE_PERMISSIONS[mode]);
-}
-
-function firstAllowedMode() {
-  return Object.keys(DETECTION_MODE_PERMISSIONS).find(mode => canUseDetectionMode(mode)) || 'single';
 }
 
 async function loadModels() {
@@ -118,17 +113,12 @@ function nextResult() {
 }
 
 function chooseFiles() {
-  if (!canRunCurrentMode.value) return toast('当前角色没有此检测权限', 'warning');
   fileInput.value.accept = state.detection.mode === 'zip' ? '.zip,application/zip' : state.detection.mode === 'video' ? 'video/*' : 'image/*';
   fileInput.value.multiple = state.detection.mode === 'batch';
   fileInput.value.click();
 }
 
 function setDetectionMode(mode) {
-  if (!canUseDetectionMode(mode)) {
-    toast('当前角色没有此检测权限', 'warning');
-    return;
-  }
   const changed = state.detection.mode !== mode;
   if (state.detection.mode === 'camera' && mode !== 'camera') stopCamera();
   state.detection.mode = mode;
@@ -161,7 +151,6 @@ function uploadSummary() {
 }
 
 async function runDetection() {
-  if (!canRunCurrentMode.value) return toast('当前角色没有此检测权限', 'warning');
   if (isCameraMode.value) {
     await startCamera();
     return;
@@ -542,9 +531,6 @@ function saveCameraResult() {
 }
 
 onMounted(() => {
-  if (!canRunCurrentMode.value) {
-    state.detection.mode = firstAllowedMode();
-  }
   if (!canSwitchModels.value) {
     state.settings.selectedModelKey = '';
     persistSettings();
@@ -565,7 +551,7 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
       <div><h1>交通检测工作台</h1><p>图片、批量、ZIP、视频和摄像头检测</p></div>
       <button
         class="btn btn-primary"
-        :disabled="!canRunCurrentMode || state.detection.running || state.detection.camera.connecting || (!isCameraMode && !state.detection.files.length)"
+        :disabled="state.detection.running || state.detection.camera.connecting || (!isCameraMode && !state.detection.files.length)"
         @click="runDetection"
       >
         <Play :size="16" />{{ primaryButtonText }}
@@ -577,8 +563,7 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
           <button
             v-for="mode in ['single','batch','zip','video','camera']"
             :key="mode"
-            :class="{ active: state.detection.mode === mode }"
-            :disabled="!canUseDetectionMode(mode)"
+            :class="{ active: state.detection.mode === mode, locked: !canUseDetectionMode(mode) }"
             :title="canUseDetectionMode(mode) ? '' : '当前角色没有此检测权限'"
             @click="setDetectionMode(mode)"
           >{{ { single: '单图', batch: '批量', zip: 'ZIP', video: '视频', camera: '摄像头' }[mode] }}</button>
@@ -625,7 +610,7 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
             <div class="camera-status">{{ cameraStatus }}</div>
           </div>
           <div class="camera-actions">
-            <button class="btn btn-primary btn-sm" :disabled="!canRunCurrentMode || state.detection.camera.connecting" @click="startCamera">
+            <button class="btn btn-primary btn-sm" :disabled="state.detection.camera.connecting" @click="startCamera">
               {{ state.detection.camera.connecting ? '连接中...' : state.detection.camera.active ? '重新连接检测' : '开启摄像头检测' }}
             </button>
             <button class="btn btn-ghost btn-sm" :disabled="!state.detection.camera.active || state.detection.camera.connecting" @click="toggleCameraPause">

@@ -9,7 +9,7 @@ const users = ref([]);
 const roles = ref([]);
 const keyword = ref('');
 const selectedUser = ref(null);
-const selectedRoleIds = ref([]);
+const selectedRoleId = ref(null);
 const roleModalOpen = ref(false);
 
 const totalUsers = computed(() => users.value.length);
@@ -43,7 +43,7 @@ async function openRoleModal(user) {
   roleModalOpen.value = true;
   try {
     const data = await api(`/api/user/${user.id}/roles`, { method: 'GET', timeout: 30000 });
-    selectedRoleIds.value = (data.roles || []).map(role => role.id);
+    selectedRoleId.value = (data.roles || [])[0]?.id || null;
   } catch (error) {
     toast(error.message, 'error');
   }
@@ -52,9 +52,10 @@ async function openRoleModal(user) {
 async function saveUserRoles() {
   if (!selectedUser.value) return;
   try {
+    const roleIds = selectedRoleId.value ? [selectedRoleId.value] : [];
     await api(`/api/user/${selectedUser.value.id}/roles`, {
       method: 'POST',
-      body: { role_ids: selectedRoleIds.value },
+      body: { role_ids: roleIds },
     });
     roleModalOpen.value = false;
     toast('用户角色已更新');
@@ -62,6 +63,10 @@ async function saveUserRoles() {
   } catch (error) {
     toast(error.message, 'error');
   }
+}
+
+function selectRole(roleId) {
+  selectedRoleId.value = roleId;
 }
 
 function displayRoles(user) {
@@ -144,8 +149,22 @@ onMounted(async () => {
         <div class="modal-body">
           <div class="permission-grid">
             <label v-for="role in roles" :key="role.id" class="check-row">
-              <input v-model="selectedRoleIds" type="checkbox" :value="role.id" />
+              <input
+                name="user-role"
+                type="radio"
+                :checked="selectedRoleId === role.id"
+                @change="selectRole(role.id)"
+              />
               <span><strong>{{ role.display_name || role.name }}</strong><small>{{ role.description || role.name }}</small></span>
+            </label>
+            <label class="check-row">
+              <input
+                name="user-role"
+                type="radio"
+                :checked="selectedRoleId === null"
+                @change="selectRole(null)"
+              />
+              <span><strong>无角色</strong><small>移除该用户的所有角色</small></span>
             </label>
           </div>
         </div>

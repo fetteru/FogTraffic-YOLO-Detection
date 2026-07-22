@@ -2226,6 +2226,18 @@ input[type="range"]::-moz-range-progress {
   margin-top: 2px;
 }
 
+.segmented-tabs button.locked,
+.chat-tools-menu button.locked {
+  color: var(--muted, #64748b);
+  border-color: rgba(148, 163, 184, 0.35);
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.segmented-tabs button.locked:not(.active),
+.chat-tools-menu button.locked:not(:hover) {
+  opacity: 0.72;
+}
+
 @media (max-width: 720px) {
   .chat-tools-menu {
     grid-template-columns: 1fr;

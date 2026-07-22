@@ -12,6 +12,22 @@ const fileInput = ref(null);
 const scrollRef = ref(null);
 const quickOpen = ref(false);
 let activeRunId = null;
+const DETECTION_MODE_PERMISSIONS = {
+  single: 'detection:scan',
+  batch: 'detection:batch',
+  zip: 'detection:zip',
+  video: 'detection:video',
+};
+
+function hasPermission(permission) {
+  if (!permission) return true;
+  if (state.user?.is_superuser) return true;
+  return (state.user?.permissions || []).includes(permission);
+}
+
+function canUseDetectionMode(mode) {
+  return hasPermission(DETECTION_MODE_PERMISSIONS[mode]);
+}
 
 function scrollBottom() {
   nextTick(() => {
@@ -282,10 +298,10 @@ onBeforeUnmount(deactivateChatLayout);
 
       <div class="chat-composer-wrap">
         <div v-if="quickOpen" class="quick-actions chat-tools-menu">
-          <button @click="chooseFiles('single')"><span>单图检测</span></button>
-          <button @click="chooseFiles('batch')"><span>批量检测</span></button>
-          <button @click="chooseFiles('video')"><span>视频检测</span></button>
-          <button @click="chooseFiles('zip')"><span>ZIP 检测</span></button>
+          <button :class="{ locked: !canUseDetectionMode('single') }" :title="canUseDetectionMode('single') ? '' : '当前角色没有单图检测权限'" @click="chooseFiles('single')"><span>单图检测</span></button>
+          <button :class="{ locked: !canUseDetectionMode('batch') }" :title="canUseDetectionMode('batch') ? '' : '当前角色没有批量检测权限'" @click="chooseFiles('batch')"><span>批量检测</span></button>
+          <button :class="{ locked: !canUseDetectionMode('video') }" :title="canUseDetectionMode('video') ? '' : '当前角色没有视频检测权限'" @click="chooseFiles('video')"><span>视频检测</span></button>
+          <button :class="{ locked: !canUseDetectionMode('zip') }" :title="canUseDetectionMode('zip') ? '' : '当前角色没有 ZIP 检测权限'" @click="chooseFiles('zip')"><span>ZIP 检测</span></button>
           <button @click="chooseFiles('attach')"><span>普通附件</span></button>
         </div>
         <div v-if="state.chat.attachments.length" class="pending-attachments">

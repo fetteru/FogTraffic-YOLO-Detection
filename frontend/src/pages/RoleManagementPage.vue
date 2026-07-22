@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { LockKeyhole, Plus, RefreshCw, Shield } from 'lucide-vue-next';
+import { LockKeyhole, Plus, RefreshCw } from 'lucide-vue-next';
 import { api } from '../services/api';
 import { toast } from '../state';
 
@@ -121,7 +121,7 @@ onMounted(async () => {
   <section class="workspace-page">
     <div class="page-title">
       <div>
-        <h1>角色权限</h1>
+        <h1>角色管理</h1>
         <p>维护平台角色，并配置每个角色可以访问的菜单、按钮和 API 权限。</p>
       </div>
       <button class="btn btn-ghost" :disabled="loading" @click="loadRoles">
@@ -187,7 +187,6 @@ onMounted(async () => {
             <h2>配置权限</h2>
             <p>{{ selectedRole?.display_name || selectedRole?.name }}</p>
           </div>
-          <Shield :size="20" />
         </header>
         <div class="modal-body">
           <div class="permission-groups">

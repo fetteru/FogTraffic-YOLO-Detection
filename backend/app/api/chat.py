@@ -10,10 +10,13 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from sqlalchemy.orm import Session
 from starlette.datastructures import UploadFile
 
 from app.agent.detection_agent import detection_agent
+from app.database.session import get_db
 from app.middleware.permission_checker import require_permission
+from app.services.rbac_service import user_has_permission
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -23,8 +26,15 @@ router = APIRouter(prefix="/api", tags=["chat"])
 async def chat_stream(
     request: Request,
     current_user=Depends(require_permission("agent:chat")),
+    db: Session = Depends(get_db),
 ):
     message, session_id, files = await _parse_chat_request(request)
+    required_permission = _required_detection_permission(files)
+    if required_permission and not user_has_permission(db, current_user, required_permission):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Permission required: {required_permission}",
+        )
     tmp_paths = []
     try:
         if files:
@@ -64,6 +74,31 @@ def _cleanup_files(paths: list[str]) -> None:
             os.unlink(path)
         except OSError:
             pass
+
+
+def _required_detection_permission(files: list[UploadFile]) -> str | None:
+    if not files:
+        return None
+    if any(_is_zip_file(item) for item in files):
+        return "detection:zip"
+    if any(_is_video_file(item) for item in files):
+        return "detection:video"
+    if len(files) > 1:
+        return "detection:batch"
+    return "detection:scan"
+
+
+def _is_zip_file(file: UploadFile) -> bool:
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    return filename.endswith(".zip") or "zip" in content_type
+
+
+def _is_video_file(file: UploadFile) -> bool:
+    filename = (file.filename or "").lower()
+    content_type = (file.content_type or "").lower()
+    video_suffixes = {".mp4", ".avi", ".mov", ".mkv", ".webm", ".flv", ".wmv"}
+    return content_type.startswith("video/") or Path(filename).suffix in video_suffixes
 
 
 async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFile]]:

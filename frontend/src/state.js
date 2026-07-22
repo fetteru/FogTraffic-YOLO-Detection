@@ -76,7 +76,7 @@ export const state = reactive({
 
 export const navItems = [
   { key: 'chat', label: '智能对话', group: '工作台', permissions: ['agent:chat'] },
-  { key: 'detection', label: '交通检测工作台', group: '工作台', permissions: ['detection:scan'] },
+  { key: 'detection', label: '交通检测工作台', group: '工作台', permissions: ['detection:scan', 'detection:batch', 'detection:zip', 'detection:video', 'detection:camera'] },
   { key: 'datasets', label: '数据集管理', group: '模型闭环', permissions: ['dataset:view'] },
   { key: 'training', label: '模型训练', group: '模型闭环', permissions: ['training:view'] },
   { key: 'evaluation', label: '模型评估', group: '模型闭环', permissions: ['training:evaluate'] },
@@ -88,8 +88,8 @@ export const navItems = [
 navItems.splice(
   navItems.findIndex(item => item.key === 'settings'),
   0,
-  { key: 'users', label: '用户管理', group: '系统', permissions: ['system:user:list'] },
-  { key: 'roles', label: '角色权限', group: '系统', permissions: ['system:role:list'] },
+  { key: 'users', label: '用户管理', group: '权限管理', permissions: ['system:user:list'] },
+  { key: 'roles', label: '角色管理', group: '权限管理', permissions: ['system:role:list'] },
 );
 
 export function userRoles() {
