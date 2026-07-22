@@ -135,8 +135,30 @@
 .demo-account button { display: inline-flex; align-items: center; gap: 4px; }
 .demo-account button svg { width: 13px; height: 13px; }
 
+.toast-root {
+  position: fixed !important;
+  z-index: 3000;
+  right: 18px;
+  bottom: 18px;
+  top: auto;
+  width: min(320px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
+  display: grid;
+  grid-template-columns: none;
+  gap: 10px;
+  pointer-events: none;
+}
+
 .toast-root .toast.show { opacity: 1; transform: none; }
-.toast-root .toast { grid-template-columns: 1fr; }
+.toast-root .toast {
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
+  max-height: 140px;
+  overflow: hidden;
+  grid-template-columns: 1fr;
+  pointer-events: auto;
+}
 .toast-root .toast strong { font-size: 11px; }
 .toast-root .toast p { margin: 1px 0 0; color: var(--muted); font-size: 10px; }
 

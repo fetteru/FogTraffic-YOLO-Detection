@@ -85,9 +85,6 @@ function navigate(page) {
   state.page = page;
   state.mobileNavOpen = false;
   location.hash = page;
-  if (state.user && !userCanSee(item)) {
-    toast('您没有访问此页面的权限，请联系管理员分配', 'error');
-  }
 }
 
 function toggleTheme() {
