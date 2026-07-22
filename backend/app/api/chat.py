@@ -28,12 +28,17 @@ async def chat_stream(
     current_user=Depends(require_permission("agent:chat")),
     db: Session = Depends(get_db),
 ):
-    message, session_id, files = await _parse_chat_request(request)
+    message, session_id, files, model_key = await _parse_chat_request(request)
     required_permission = _required_detection_permission(files)
     if required_permission and not user_has_permission(db, current_user, required_permission):
         raise HTTPException(
             status_code=403,
             detail=f"Permission required: {required_permission}",
+        )
+    if files and model_key and not user_has_permission(db, current_user, "detection:model:switch"):
+        raise HTTPException(
+            status_code=403,
+            detail="Permission required: detection:model:switch",
         )
     tmp_paths = []
     try:
@@ -51,6 +56,7 @@ async def chat_stream(
                     image_paths=tmp_paths,
                     session_id=session_id,
                     user_id=current_user.id,
+                    model_key=model_key,
                 ):
                     if await request.is_disconnected():
                         break
@@ -101,7 +107,7 @@ def _is_video_file(file: UploadFile) -> bool:
     return content_type.startswith("video/") or Path(filename).suffix in video_suffixes
 
 
-async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFile]]:
+async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFile], str | None]:
     content_type = request.headers.get("content-type", "")
     files: list[UploadFile] = []
     attachment_names: list[str] = []
@@ -110,6 +116,7 @@ async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFi
         form = await request.form()
         message = str(form.get("message") or form.get("content") or "").strip()
         session_id = str(form.get("session_id") or "default")
+        model_key = str(form.get("model_key") or "").strip() or None
         for key in ("files", "file"):
             for item in form.getlist(key):
                 if isinstance(item, UploadFile):
@@ -119,10 +126,12 @@ async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFi
         payload = await request.json()
         message = str(payload.get("message") or payload.get("content") or "").strip()
         session_id = str(payload.get("session_id") or "default")
+        model_key = str(payload.get("model_key") or "").strip() or None
     else:
         payload = await request.body()
         message = payload.decode("utf-8", errors="ignore").strip()
         session_id = "default"
+        model_key = None
 
     if attachment_names:
         message = (
@@ -133,4 +142,4 @@ async def _parse_chat_request(request: Request) -> tuple[str, str, list[UploadFi
 
     if not message:
         raise HTTPException(status_code=422, detail="message or files is required")
-    return message, session_id, files
+    return message, session_id, files, model_key

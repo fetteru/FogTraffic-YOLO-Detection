@@ -83,7 +83,7 @@ export async function api(path, options = {}) {
   }
 }
 
-export async function streamChat({ message, files = [], sessionId = 'default' }, onEvent, signal) {
+export async function streamChat({ message, files = [], sessionId = 'default', selectedModelKey = '' }, onEvent, signal) {
   const headers = {};
   if (token()) headers.Authorization = `Bearer ${token()}`;
   let body;
@@ -91,10 +91,11 @@ export async function streamChat({ message, files = [], sessionId = 'default' },
     body = new FormData();
     body.append('message', message || '');
     body.append('session_id', sessionId);
+    if (selectedModelKey) body.append('model_key', selectedModelKey);
     files.forEach(item => body.append('files', item.file || item, item.name || item.file?.name || 'upload'));
   } else {
     headers['Content-Type'] = 'application/json';
-    body = JSON.stringify({ message, session_id: sessionId });
+    body = JSON.stringify({ message, session_id: sessionId, model_key: selectedModelKey || undefined });
   }
   const response = await fetch(apiUrl('/api/chat/stream'), {
     method: 'POST',

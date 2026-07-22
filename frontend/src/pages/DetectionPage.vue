@@ -161,7 +161,6 @@ async function runDetection() {
     const results = await detectFiles(state.detection.mode, state.detection.files, state.settings);
     state.detection.results = results;
     state.detection.selected = 0;
-    toast(`检测完成，共 ${results.reduce((sum, item) => sum + Number(item.total || 0), 0)} 个目标`);
   } catch (error) {
     toast(error.message, 'error');
   } finally {

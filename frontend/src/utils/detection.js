@@ -1,4 +1,5 @@
 import { api } from '../services/api';
+import { state } from '../state';
 
 export function fileItems(files) {
   return [...(files || [])].map(file => ({
@@ -33,13 +34,15 @@ export function normalizeDetection(payload = {}, fileItem = {}, mode = 'single',
   const preview = isVideo
     ? (payload.annotated_video_url || payload.video_url || '')
     : (payload.annotated_image || fileItem.preview || '');
+  const selectedModel = state.settings.models.find(item => item.key === state.settings.selectedModelKey);
+  const fallbackModel = selectedModel?.name || selectedModel?.model_name || state.settings.defaultModel || '未指定模型';
   return {
     id: payload.task_id || `${mode}_${Date.now()}_${index}`,
     filename: payload.filename || fileItem.name || `result_${index + 1}`,
     mode,
     model: typeof payload.model === 'object'
       ? (payload.model.name || payload.model.model_name || payload.model.key)
-      : (payload.model || 'local_model'),
+      : (payload.model || fallbackModel),
     modelKey: typeof payload.model === 'object' ? payload.model.key : '',
     total: Number(payload.total_objects ?? payload.total ?? 0),
     counts,

@@ -144,7 +144,12 @@ async function sendChatMessage() {
 
   try {
     await streamChat(
-      { message: text || '请检测附件并给出分析。', files: attachments, sessionId: chatSessionId() },
+      {
+        message: text || '请检测附件并给出分析。',
+        files: attachments,
+        sessionId: chatSessionId(),
+        selectedModelKey: hasPermission('detection:model:switch') ? state.settings.selectedModelKey : '',
+      },
       event => {
         if (controller.signal.aborted || activeRunId !== runId) return;
         handleAgentEvent(event);
@@ -198,14 +203,17 @@ async function quickDetect(mode, items) {
   updateAgentFlow({ node: 'supervisor', status: 'done', detail: `路由决策：${mode}` });
   updateAgentFlow({ node: 'detection', status: 'running', detail: '正在调用 YOLO 检测工具' });
   try {
-    const results = await detectFiles(mode, items, { ...state.settings, signal: controller.signal });
+    const results = await detectFiles(mode, items, {
+      ...state.settings,
+      selectedModelKey: hasPermission('detection:model:switch') ? state.settings.selectedModelKey : '',
+      signal: controller.signal,
+    });
     if (controller.signal.aborted || activeRunId !== runId) return;
     const total = results.reduce((sum, item) => sum + Number(item.total || 0), 0);
     assistant.content = `${label}完成，共处理 ${results.length} 个结果，累计发现 ${total} 个目标。`;
     setMessageResults(assistant, results);
     updateAgentFlow({ node: 'detection', status: 'done', detail: `检测完成：${total} 个目标` });
     updateAgentFlow({ node: 'summarize', status: 'done', detail: '结果已整理' });
-    toast(`${label}完成`);
   } catch (error) {
     if (error.name === 'AbortError') {
       if (activeRunId === runId) {

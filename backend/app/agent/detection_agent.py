@@ -38,12 +38,13 @@ from app.database.session import SessionLocal
 
 logger = get_logger(__name__)
 current_user_id: ContextVar[int | None] = ContextVar("current_user_id", default=None)
+current_model_key: ContextVar[str | None] = ContextVar("current_model_key", default=None)
 
 
 @tool
 def detect_single_image(image_path: str, conf: float = 0.25, iou: float = 0.45) -> str:
     """Detect objects in one local image path and summarize object counts, classes and inference time."""
-    result = detection_service.detect_single(image_path, conf=conf, iou=iou)
+    result = detection_service.detect_single(image_path, conf=conf, iou=iou, model_key=current_model_key.get())
     user_id = current_user_id.get()
     if user_id and "error" not in result:
         result["db_task_id"] = detection_service.save_detection_result(
@@ -53,6 +54,7 @@ def detect_single_image(image_path: str, conf: float = 0.25, iou: float = 0.45) 
             conf=conf,
             iou=iou,
             task_name=Path(image_path).name,
+            model_version_id=_model_version_id_from_result(result),
         )
     return json.dumps(_summarize_detection_result(result), ensure_ascii=False)
 
@@ -60,7 +62,7 @@ def detect_single_image(image_path: str, conf: float = 0.25, iou: float = 0.45) 
 @tool
 def detect_batch_images(image_paths: list[str], conf: float = 0.25, iou: float = 0.45) -> str:
     """Detect objects in multiple local image paths and summarize totals and class distribution."""
-    result = detection_service.detect_batch(image_paths, conf=conf, iou=iou)
+    result = detection_service.detect_batch(image_paths, conf=conf, iou=iou, model_key=current_model_key.get())
     user_id = current_user_id.get()
     if user_id and "error" not in result:
         result["db_task_id"] = detection_service.save_detection_result(
@@ -70,6 +72,7 @@ def detect_batch_images(image_paths: list[str], conf: float = 0.25, iou: float =
             conf=conf,
             iou=iou,
             task_name="agent batch detection",
+            model_version_id=_model_version_id_from_result(result),
         )
     return json.dumps(_summarize_detection_result(result), ensure_ascii=False)
 
@@ -77,7 +80,7 @@ def detect_batch_images(image_paths: list[str], conf: float = 0.25, iou: float =
 @tool
 def detect_zip_images(zip_path: str, conf: float = 0.25, iou: float = 0.45) -> str:
     """Extract a ZIP file and detect all supported images inside it."""
-    result = detection_service.detect_zip(zip_path, conf=conf, iou=iou)
+    result = detection_service.detect_zip(zip_path, conf=conf, iou=iou, model_key=current_model_key.get())
     user_id = current_user_id.get()
     if user_id and "error" not in result:
         result["db_task_id"] = detection_service.save_detection_result(
@@ -87,6 +90,7 @@ def detect_zip_images(zip_path: str, conf: float = 0.25, iou: float = 0.45) -> s
             conf=conf,
             iou=iou,
             task_name=Path(zip_path).name,
+            model_version_id=_model_version_id_from_result(result),
         )
     return json.dumps(_summarize_detection_result(result), ensure_ascii=False)
 
@@ -104,6 +108,7 @@ def detect_video_file(video_path: str, conf: float = 0.25, iou: float = 0.45, sa
             iou=iou,
             task_name=Path(video_path).name,
             source_type="video",
+            model_version_id=_model_version_id_from_model_key(),
         )
     result = detection_service.detect_video(
         video_path,
@@ -112,6 +117,7 @@ def detect_video_file(video_path: str, conf: float = 0.25, iou: float = 0.45, sa
         iou=iou,
         sample_interval=sample_interval,
         db_task_id=db_task_id,
+        model_key=current_model_key.get(),
     )
     if "error" in result:
         detection_service.mark_detection_task_failed(db_task_id, result["error"])
@@ -244,8 +250,10 @@ class DetectionAgent:
         image_paths: list[str] | None = None,
         session_id: str = "default",
         user_id: int | None = None,
+        model_key: str | None = None,
     ) -> AsyncGenerator[dict, None]:
-        token = current_user_id.set(user_id)
+        user_token = current_user_id.set(user_id)
+        model_token = current_model_key.set(model_key)
         try:
             history = conversation_memory.get_messages(session_id)
             conversation_memory.append(session_id, "user", message)
@@ -285,7 +293,8 @@ class DetectionAgent:
             conversation_memory.append(session_id, "assistant", output)
             yield {"type": "done"}
         finally:
-            current_user_id.reset(token)
+            current_user_id.reset(user_token)
+            current_model_key.reset(model_token)
 
     async def _try_direct_tool_flow(
         self,
@@ -352,6 +361,27 @@ def _require_user_id() -> int:
     if not user_id:
         raise RuntimeError("missing current user")
     return user_id
+
+
+def _model_version_id_from_model_key() -> int | None:
+    key = current_model_key.get() or ""
+    if not key.startswith("db:"):
+        return None
+    try:
+        return int(key.split(":", 1)[1])
+    except (TypeError, ValueError):
+        return None
+
+
+def _model_version_id_from_result(result: dict) -> int | None:
+    model = result.get("model")
+    if not isinstance(model, dict):
+        return None
+    value = model.get("model_version_id") or model.get("id")
+    try:
+        return int(value) if value else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _provider_config(provider: str) -> dict:
@@ -729,6 +759,8 @@ def _summarize_detection_result(result: dict) -> dict:
         "inference_time": result.get("inference_time"),
         "db_task_id": result.get("db_task_id"),
     }
+    if "model" in result:
+        summary["model"] = result.get("model")
     if "total_images" in result:
         summary["total_images"] = result.get("total_images")
     if "filename" in result:
