@@ -65,6 +65,9 @@ env/
 /models/*
 !/models/acdc_v1.0.0/
 !/models/acdc_v1.0.0/best.pt
+!/models/rain_yolo_multiclass_v1_final/
+models/rain_yolo_multiclass_v1_final/*
+!/models/rain_yolo_multiclass_v1_final/best.pt
 /backend/models/
 weights/
 checkpoints/

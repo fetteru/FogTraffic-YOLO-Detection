@@ -10,10 +10,21 @@ const persistedSettings = (() => {
 
 const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
 const LEGACY_DEFAULT_API_BASE = 'http://localhost:8000';
+const DEFAULT_MODEL_NAME = 'rain_yolo_multiclass_v1_final';
+const LEGACY_DEFAULT_MODEL_NAME = 'acdc_v1.0.0';
+const LEGACY_DEFAULT_MODEL_KEY = 'file:acdc-v1-0-0';
 
 function normalizeApiBase(value) {
   const base = value || DEFAULT_API_BASE;
   return base === LEGACY_DEFAULT_API_BASE ? DEFAULT_API_BASE : base;
+}
+
+function normalizeDefaultModel(value) {
+  return value && value !== LEGACY_DEFAULT_MODEL_NAME ? value : DEFAULT_MODEL_NAME;
+}
+
+function normalizeSelectedModelKey(value) {
+  return value === LEGACY_DEFAULT_MODEL_KEY ? '' : value || '';
 }
 
 function welcomeMessage() {
@@ -36,8 +47,8 @@ export const state = reactive({
     apiBase: normalizeApiBase(persistedSettings.apiBase),
     confidence: Number(persistedSettings.confidence ?? 0.25),
     iou: Number(persistedSettings.iou ?? 0.45),
-    defaultModel: persistedSettings.defaultModel || 'acdc_v1.0.0',
-    selectedModelKey: persistedSettings.selectedModelKey || '',
+    defaultModel: normalizeDefaultModel(persistedSettings.defaultModel),
+    selectedModelKey: normalizeSelectedModelKey(persistedSettings.selectedModelKey),
     themeAccent: persistedSettings.themeAccent || 'ocean',
     models: [],
   },

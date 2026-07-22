@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     DATASET_BASE_DIR: str = "datasets"
 
     # Detection and Agent
-    DEFAULT_MODEL_PATH: str = "models/acdc_v1.0.0/best.pt"
+    DEFAULT_MODEL_PATH: str = "models/rain_yolo_multiclass_v1_final/best.pt"
     DEFAULT_DATA_YAML: str = "datasets/rsod/raindataset/data.yaml"
     DETECTION_OUTPUT_DIR: str = "runs/detect"
     LLM_PROVIDER: str = "openai"
