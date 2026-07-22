@@ -21,6 +21,8 @@ from app.entity.db_models import TrainingMetric, TrainingTask
 logger = get_logger(__name__)
 _running_tasks: dict[str, object] = {}
 _running_lock = threading.Lock()
+_progress_cache: dict[int, tuple[int, int]] = {}
+_progress_lock = threading.Lock()
 
 
 def _model_display_name(path_value: str | None) -> str | None:
@@ -139,6 +141,10 @@ class TrainingService:
             def on_train_epoch_end(trainer):
                 TrainingService._record_epoch_metric(task_id, trainer, config)
 
+            def on_train_batch_end(trainer):
+                TrainingService._record_batch_progress(task_id, trainer, config)
+
+            model.add_callback("on_train_batch_end", on_train_batch_end)
             model.add_callback("on_train_epoch_end", on_train_epoch_end)
             task.progress = max(task.progress or 0, 1)
             task.error_message = None
@@ -178,6 +184,56 @@ class TrainingService:
                     logger.warning("Failed to restore data.yaml: %s", data_yaml)
             with _running_lock:
                 _running_tasks.pop(task_uuid, None)
+            with _progress_lock:
+                _progress_cache.pop(task_id, None)
+            db.close()
+
+    @staticmethod
+    def _record_batch_progress(task_id: int, trainer, config: dict) -> None:
+        try:
+            total_epochs = max(1, int(config.get("epochs", 50) or 50))
+            epoch_index = max(0, int(getattr(trainer, "epoch", 0) or 0))
+            batch_index = getattr(trainer, "batch_i", None)
+            if batch_index is None:
+                batch_index = getattr(trainer, "i", None)
+            batch_index = max(0, int(batch_index or 0))
+
+            train_loader = getattr(trainer, "train_loader", None) or getattr(trainer, "loader", None)
+            try:
+                total_batches = len(train_loader) if train_loader is not None else 0
+            except TypeError:
+                total_batches = 0
+
+            epoch_fraction = 0.0
+            if total_batches > 0:
+                epoch_fraction = min(1.0, (batch_index + 1) / total_batches)
+            progress = int(((epoch_index + epoch_fraction) / total_epochs) * 100)
+            progress = max(1, min(99, progress))
+            current_epoch = min(total_epochs, epoch_index + 1)
+            TrainingService._update_progress(task_id, progress, current_epoch)
+        except Exception as exc:
+            logger.debug("Training batch progress callback skipped: %s", exc)
+
+    @staticmethod
+    def _update_progress(task_id: int, progress: int, current_epoch: int) -> None:
+        marker = (progress, current_epoch)
+        with _progress_lock:
+            if _progress_cache.get(task_id) == marker:
+                return
+            _progress_cache[task_id] = marker
+
+        db = SessionLocal()
+        try:
+            task = db.query(TrainingTask).filter(TrainingTask.id == task_id).first()
+            if not task or task.status != "running":
+                return
+            task.progress = max(int(task.progress or 0), progress)
+            task.current_epoch = max(int(task.current_epoch or 0), current_epoch)
+            db.commit()
+        except Exception as exc:
+            logger.debug("Training progress update skipped: %s", exc)
+            db.rollback()
+        finally:
             db.close()
 
     @staticmethod
@@ -203,8 +259,8 @@ class TrainingService:
                 logger.warning("Training task not found while recording metric: %s", task_id)
                 return
             total_epochs = int(config.get("epochs", 50))
-            task.current_epoch = epoch
-            task.progress = min(100, int((epoch / total_epochs) * 100))
+            task.current_epoch = max(task.current_epoch or 0, epoch)
+            task.progress = max(task.progress or 0, min(100, int((epoch / total_epochs) * 100)))
             db.commit()
         except Exception as exc:
             logger.warning("Training callback failed: %s", exc)

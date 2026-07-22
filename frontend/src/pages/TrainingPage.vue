@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import StatusBadge from '../components/StatusBadge.vue';
 import { api } from '../services/api';
 import { state, toast } from '../state';
@@ -8,6 +8,7 @@ const loading = ref(false);
 const datasets = ref([]);
 const creating = ref(false);
 const selectedDatasetId = ref('');
+let taskPollTimer = null;
 const form = reactive({
   name: '雨雾交通检测训练任务',
   base_model_key: '',
@@ -86,6 +87,18 @@ async function loadTasks() {
   state.tasks = items.map(normalizeTask);
 }
 
+function hasLiveTask() {
+  return state.tasks.some(task => task.status === 'pending' || task.status === 'running');
+}
+
+function startTaskPolling() {
+  if (taskPollTimer) window.clearInterval(taskPollTimer);
+  taskPollTimer = window.setInterval(() => {
+    if (!hasLiveTask()) return;
+    loadTasks().catch(error => console.warn('Failed to refresh training tasks', error));
+  }, 3000);
+}
+
 async function refreshAll() {
   loading.value = true;
   try {
@@ -115,6 +128,7 @@ async function createTask() {
         img_size: Number(form.img_size),
         batch_size: Number(form.batch_size),
         device: form.device,
+        workers: 0,
         optimizer: form.optimizer,
         lr0: Number(form.lr0),
         augment_config: { mosaic: true, mixup: false },
@@ -143,7 +157,14 @@ watch(selectedDataset, dataset => {
   if (dataset) form.name = `${dataset.name} 精调训练`;
 });
 
-onMounted(refreshAll);
+onMounted(() => {
+  refreshAll();
+  startTaskPolling();
+});
+
+onBeforeUnmount(() => {
+  if (taskPollTimer) window.clearInterval(taskPollTimer);
+});
 </script>
 
 <template>
