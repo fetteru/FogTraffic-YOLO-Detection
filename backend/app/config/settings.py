@@ -64,6 +64,8 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: str = ""
     GEMINI_MODEL: str = "gemini-3.5-flash"
     GEMINI_BASE_URL: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    ENABLE_LLM_REPORTS: bool = True
+    LLM_REPORT_TIMEOUT_SECONDS: float = 30.0
 
     # Agent memory and RAG
     AGENT_MEMORY_MAX_MESSAGES: int = 20

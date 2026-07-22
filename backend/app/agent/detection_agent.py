@@ -768,7 +768,38 @@ def _summarize_detection_result(result: dict) -> dict:
     if "total_frames" in result:
         summary["total_frames"] = result.get("total_frames")
         summary["sampled_frames"] = result.get("sampled_frames")
-        summary["media_note"] = "视频结果已由后端保存，LLM 摘要不包含媒体 URL。"
+        summary["processed_frames"] = result.get("processed_frames")
+        summary["frame_sample_rate"] = result.get("frame_sample_rate")
+        summary["fps"] = result.get("fps")
+        summary["duration_seconds"] = result.get("duration_seconds")
+        summary["unique_vehicle_count"] = result.get("unique_vehicle_count")
+        summary["unique_class_counts"] = result.get("unique_class_counts")
+        summary["sampled_class_counts"] = result.get("sampled_class_counts")
+        summary["frame_stats"] = _summarize_video_frame_stats(result.get("frames") or result.get("key_frames") or [])
+        summary["video_url"] = result.get("video_url")
+        summary["annotated_video_url"] = result.get("annotated_video_url")
+        summary["local_video_url"] = result.get("local_video_url")
+        summary["media_note"] = "视频结果已由后端保存，前端可播放标注后的视频。"
+    return summary
+
+
+def _summarize_video_frame_stats(frames: list[dict]) -> list[dict]:
+    summary = []
+    for frame in frames[:30]:
+        detections = frame.get("detections") or []
+        class_counts: dict[str, int] = {}
+        for item in detections:
+            name = item.get("class_name") or item.get("name")
+            if name:
+                class_counts[name] = class_counts.get(name, 0) + 1
+        summary.append(
+            {
+                "frame_number": frame.get("frame_number") or frame.get("frame_index") or frame.get("frame"),
+                "frame_time": frame.get("frame_time") or frame.get("time_sec") or frame.get("time"),
+                "total_objects": frame.get("total_objects") or len(detections),
+                "class_counts": frame.get("class_counts") or class_counts,
+            }
+        )
     return summary
 
 

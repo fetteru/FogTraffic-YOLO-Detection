@@ -77,9 +77,19 @@ function removeAttachment(index) {
 
 function handleAgentEvent(event) {
   if (event.type === 'multi_agent') {
-    updateAgentFlow(event);
-    addTrace(event.status === 'error' ? 'error' : event.node === 'summarize' ? 'result' : 'system', event.title || event.node, event.detail || '');
+    recordAgentEvent(event);
   }
+}
+
+function traceTypeForAgentEvent(event) {
+  if (event.status === 'error') return 'error';
+  if (event.status === 'done' || event.node === 'summarize') return 'result';
+  return 'system';
+}
+
+function recordAgentEvent(event, type = traceTypeForAgentEvent(event)) {
+  updateAgentFlow(event);
+  addTrace(type, event.title || event.node || 'Agent', event.detail || '');
 }
 
 function modeFromTool(tool = '', attachments = []) {
@@ -135,7 +145,7 @@ async function sendChatMessage() {
   state.chat.attachments = [];
   state.chat.streaming = true;
   resetAgentFlow();
-  addTrace('system', '意图分析', text || '附件检测请求');
+  recordAgentEvent({ node: 'supervisor', status: 'running', title: '意图分析', detail: text || '附件检测请求' }, 'system');
   scrollBottom();
   const controller = new AbortController();
   const runId = crypto.randomUUID();
@@ -177,6 +187,7 @@ async function sendChatMessage() {
       }
     } else {
       assistant.content = `请求失败：${error.message}`;
+      recordAgentEvent({ node: 'supervisor', status: 'error', title: '请求失败', detail: error.message }, 'error');
     }
   } finally {
     if (activeRunId === runId) {
@@ -200,8 +211,8 @@ async function quickDetect(mode, items) {
   activeRunId = runId;
   state.chat.controller = controller;
   resetAgentFlow();
-  updateAgentFlow({ node: 'supervisor', status: 'done', detail: `路由决策：${mode}` });
-  updateAgentFlow({ node: 'detection', status: 'running', detail: '正在调用 YOLO 检测工具' });
+  recordAgentEvent({ node: 'supervisor', status: 'done', title: 'Supervisor', detail: `路由决策：${label}` }, 'system');
+  recordAgentEvent({ node: 'detection', status: 'running', title: 'Detection Agent', detail: '正在调用 YOLO 检测工具' }, 'tool');
   try {
     const results = await detectFiles(mode, items, {
       ...state.settings,
@@ -212,8 +223,8 @@ async function quickDetect(mode, items) {
     const total = results.reduce((sum, item) => sum + Number(item.total || 0), 0);
     assistant.content = `${label}完成，共处理 ${results.length} 个结果，累计发现 ${total} 个目标。`;
     setMessageResults(assistant, results);
-    updateAgentFlow({ node: 'detection', status: 'done', detail: `检测完成：${total} 个目标` });
-    updateAgentFlow({ node: 'summarize', status: 'done', detail: '结果已整理' });
+    recordAgentEvent({ node: 'detection', status: 'done', title: 'Detection Agent', detail: `检测完成：${total} 个目标` }, 'result');
+    recordAgentEvent({ node: 'summarize', status: 'done', title: 'Supervisor Summarize', detail: '结果已整理' }, 'result');
   } catch (error) {
     if (error.name === 'AbortError') {
       if (activeRunId === runId) {
@@ -225,7 +236,7 @@ async function quickDetect(mode, items) {
       }
     } else {
       assistant.content = `检测失败：${error.message}`;
-      updateAgentFlow({ node: 'detection', status: 'error', detail: error.message });
+      recordAgentEvent({ node: 'detection', status: 'error', title: '检测失败', detail: error.message }, 'error');
     }
   } finally {
     if (activeRunId === runId) {
@@ -278,6 +289,7 @@ onBeforeUnmount(deactivateChatLayout);
             <div v-if="message.attachments?.length" class="message-attachments">
               <template v-for="item in message.attachments" :key="item.name">
                 <img v-if="item.type?.startsWith('image/')" :src="item.preview" alt="附件" />
+                <video v-else-if="item.type?.startsWith('video/')" :src="item.preview" controls playsinline preload="metadata"></video>
                 <div v-else class="file-attachment"><span>{{ item.name }}</span></div>
               </template>
             </div>

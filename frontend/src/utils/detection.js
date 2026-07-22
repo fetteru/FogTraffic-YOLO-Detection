@@ -1,4 +1,4 @@
-import { api } from '../services/api';
+import { api, apiUrl } from '../services/api';
 import { state } from '../state';
 
 export function fileItems(files) {
@@ -27,13 +27,20 @@ export function classLabel(name) {
   }[name] || name;
 }
 
+function normalizeMediaUrl(value) {
+  if (!value || typeof value !== 'string') return '';
+  if (/^(data:|blob:|https?:\/\/)/i.test(value)) return value;
+  return value.startsWith('/') ? apiUrl(value) : value;
+}
+
 export function normalizeDetection(payload = {}, fileItem = {}, mode = 'single', index = 0) {
   const analysis = payload.rain_fog_analysis || {};
   const counts = payload.unique_class_counts || analysis.traffic?.unique_class_counts || payload.class_counts || {};
   const isVideo = mode === 'video' || Boolean(payload.video_url || payload.annotated_video_url);
-  const preview = isVideo
-    ? (payload.annotated_video_url || payload.video_url || '')
+  const rawPreview = isVideo
+    ? (payload.annotated_video_url || payload.video_url || payload.local_video_url || fileItem.preview || '')
     : (payload.annotated_image || fileItem.preview || '');
+  const preview = normalizeMediaUrl(rawPreview);
   const selectedModel = state.settings.models.find(item => item.key === state.settings.selectedModelKey);
   const fallbackModel = selectedModel?.name || selectedModel?.model_name || state.settings.defaultModel || '未指定模型';
   return {

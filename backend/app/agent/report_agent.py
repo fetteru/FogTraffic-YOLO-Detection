@@ -19,9 +19,10 @@ def generate_report(result: dict, visibility: dict, traffic: dict, risk: dict) -
     never sent to the model. If the LLM is not configured or fails, the function
     falls back to a deterministic local report so detection still works.
     """
-    llm_report = generate_report_with_llm(result, visibility, traffic, risk)
-    if llm_report:
-        return llm_report
+    if settings.ENABLE_LLM_REPORTS:
+        llm_report = generate_report_with_llm(result, visibility, traffic, risk)
+        if llm_report:
+            return llm_report
     return generate_template_report(result, visibility, traffic, risk)
 
 
@@ -79,7 +80,8 @@ def generate_report_with_llm(result: dict, visibility: dict, traffic: dict, risk
             model=config["model"],
             base_url=config["base_url"],
             temperature=0.35,
-            timeout=20,
+            timeout=settings.LLM_REPORT_TIMEOUT_SECONDS,
+            max_retries=0,
         )
         prompt = build_llm_report_prompt(result, visibility, traffic, risk)
         response = llm.invoke(prompt)
