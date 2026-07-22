@@ -182,7 +182,7 @@ onMounted(async () => {
 
     <Teleport to="body">
       <div v-if="permissionModalOpen" class="modal-backdrop visible permission-modal-backdrop" @click.self="permissionModalOpen = false">
-        <section class="modal-card modal-fullscreen permission-modal-card">
+        <section class="modal-card modal-permission permission-modal-card">
           <header class="modal-header">
             <div>
               <h2>配置权限</h2>

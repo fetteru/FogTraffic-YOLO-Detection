@@ -944,8 +944,8 @@ input[type="range"] { outline: none; }
 .modal-md { width: min(100%, 660px); }
 .modal-lg { width: min(100%, 820px); }
 .modal-xl { width: min(100%, 1080px); }
-.modal-backdrop.permission-modal-backdrop { padding: 0; place-items: stretch; overflow: hidden; }
-.modal-card.modal-fullscreen { width: 100vw; height: 100vh; max-height: none; border: 0; border-radius: 0; box-shadow: none; }
+.modal-backdrop.permission-modal-backdrop { padding: clamp(20px, 3vw, 44px); place-items: center; overflow: auto; }
+.modal-card.modal-permission { width: min(1180px, calc(100vw - 72px)); height: min(82vh, calc(100vh - 72px)); max-height: calc(100vh - 72px); border-radius: 22px; }
 .permission-modal-card .modal-header { padding: 20px clamp(24px, 3vw, 56px); }
 .permission-modal-card .modal-body { padding: 26px clamp(24px, 3vw, 56px); }
 .permission-modal-card .modal-footer { padding: 16px clamp(24px, 3vw, 56px); }
