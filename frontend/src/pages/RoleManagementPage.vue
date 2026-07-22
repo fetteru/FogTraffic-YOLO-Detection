@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue';
-import { LockKeyhole, Plus, RefreshCw } from 'lucide-vue-next';
+import { LockKeyhole, Plus, RefreshCw, X } from 'lucide-vue-next';
 import { api } from '../services/api';
 import { toast } from '../state';
 
@@ -180,35 +180,40 @@ onMounted(async () => {
       </section>
     </div>
 
-    <div v-if="permissionModalOpen" class="modal-backdrop visible" @click.self="permissionModalOpen = false">
-      <section class="modal-card modal-lg">
-        <header class="modal-header">
-          <div>
-            <h2>配置权限</h2>
-            <p>{{ selectedRole?.display_name || selectedRole?.name }}</p>
+    <Teleport to="body">
+      <div v-if="permissionModalOpen" class="modal-backdrop visible permission-modal-backdrop" @click.self="permissionModalOpen = false">
+        <section class="modal-card modal-fullscreen permission-modal-card">
+          <header class="modal-header">
+            <div>
+              <h2>配置权限</h2>
+              <p>{{ selectedRole?.display_name || selectedRole?.name }}</p>
+            </div>
+            <button class="icon-button" type="button" aria-label="关闭权限配置" @click="permissionModalOpen = false">
+              <X :size="18" />
+            </button>
+          </header>
+          <div class="modal-body">
+            <div class="permission-groups">
+              <section v-for="group in groupedPermissions" :key="group.module">
+                <h3>{{ group.module }}</h3>
+                <div class="permission-grid">
+                  <label v-for="permission in group.items" :key="permission.id" class="check-row">
+                    <input v-model="selectedPermissionIds" type="checkbox" :value="permission.id" />
+                    <span>
+                      <strong>{{ permission.name }}</strong>
+                      <small>{{ permission.code }}</small>
+                    </span>
+                  </label>
+                </div>
+              </section>
+            </div>
           </div>
-        </header>
-        <div class="modal-body">
-          <div class="permission-groups">
-            <section v-for="group in groupedPermissions" :key="group.module">
-              <h3>{{ group.module }}</h3>
-              <div class="permission-grid">
-                <label v-for="permission in group.items" :key="permission.id" class="check-row">
-                  <input v-model="selectedPermissionIds" type="checkbox" :value="permission.id" />
-                  <span>
-                    <strong>{{ permission.name }}</strong>
-                    <small>{{ permission.code }}</small>
-                  </span>
-                </label>
-              </div>
-            </section>
-          </div>
-        </div>
-        <footer class="modal-footer">
-          <button class="btn btn-ghost" @click="permissionModalOpen = false">取消</button>
-          <button class="btn btn-primary" @click="saveRolePermissions"><LockKeyhole :size="16" />保存权限</button>
-        </footer>
-      </section>
-    </div>
+          <footer class="modal-footer">
+            <button class="btn btn-ghost" @click="permissionModalOpen = false">取消</button>
+            <button class="btn btn-primary" @click="saveRolePermissions"><LockKeyhole :size="16" />保存权限</button>
+          </footer>
+        </section>
+      </div>
+    </Teleport>
   </section>
 </template>
