@@ -250,6 +250,51 @@ body.app-authenticated .gesture-mini-toolbar button.active {
 .gesture-mini-toolbar svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .gesture-mini-toolbar .gesture-toolbar-label { white-space: nowrap; }
 
+.management-toolbar {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.panel-title .management-toolbar {
+  flex: 0 1 390px;
+}
+
+.management-toolbar > svg,
+.settings-section-head > svg,
+.modal-header > svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  color: var(--muted);
+  stroke-width: 1.8;
+}
+
+.management-toolbar > svg {
+  width: 16px;
+  height: 16px;
+  flex-basis: 16px;
+}
+
+.management-toolbar input {
+  width: min(230px, 30vw);
+  height: 34px;
+  min-width: 150px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 10px;
+  color: var(--text);
+  background: var(--surface-2);
+  font-size: 12px;
+}
+
+.management-toolbar .btn {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
 :root[data-theme="dark"] {
   color-scheme: dark;
   --bg: #07101f;
