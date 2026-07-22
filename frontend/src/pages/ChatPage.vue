@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Paperclip, Send, Square, Trash2, Download } 
 import AgentFlow from '../components/AgentFlow.vue';
 import DetectionResult from '../components/DetectionResult.vue';
 import { streamChat } from '../services/api';
-import { detectFiles, fileItems, normalizeDetection } from '../utils/detection';
+import { DETECTION_FILE_ACCEPTS, detectFiles, fileItems, isAllowedDetectionFile, normalizeDetection } from '../utils/detection';
 import { markdown, formatTime } from '../utils/text';
 import { addTrace, resetAgentFlow, state, toast, updateAgentFlow } from '../state';
 
@@ -53,16 +53,30 @@ function deactivateChatLayout() {
 
 function chooseFiles(mode = 'attach') {
   fileInput.value.dataset.mode = mode;
-  fileInput.value.accept = mode === 'zip' ? '.zip,application/zip' : mode === 'video' ? 'video/*' : 'image/*,video/*,.zip';
+  fileInput.value.accept = DETECTION_FILE_ACCEPTS[mode] || DETECTION_FILE_ACCEPTS.attach;
   fileInput.value.multiple = mode === 'batch' || mode === 'attach';
   fileInput.value.click();
 }
 
+function fileModeLabel(mode) {
+  return {
+    single: '单图检测只能选择图片',
+    batch: '批量检测只能选择图片',
+    video: '视频检测只能选择视频',
+    zip: 'ZIP 检测只能选择 zip 压缩包',
+    attach: '普通附件只支持图片、视频或 zip 压缩包',
+  }[mode] || '文件类型不支持';
+}
+
 async function onFileChange(event) {
-  const items = fileItems(event.target.files);
+  const selected = fileItems(event.target.files);
   const mode = event.target.dataset.mode || 'attach';
   event.target.value = '';
   quickOpen.value = false;
+  const items = selected.filter(item => isAllowedDetectionFile(item, mode));
+  if (items.length !== selected.length) {
+    toast(fileModeLabel(mode), 'warning');
+  }
   if (!items.length) return;
   if (mode === 'attach') {
     state.chat.attachments.push(...items);

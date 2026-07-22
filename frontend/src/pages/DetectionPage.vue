@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ChevronLeft, ChevronRight, Play, Upload } from 'lucide-vue-next';
 import DetectionResult from '../components/DetectionResult.vue';
 import { api, token } from '../services/api';
-import { detectFiles, fileItems, normalizeDetection } from '../utils/detection';
+import { DETECTION_FILE_ACCEPTS, detectFiles, fileItems, isAllowedDetectionFile, isImageUpload, isVideoUpload, normalizeDetection } from '../utils/detection';
 import { persistSettings, state, toast } from '../state';
 
 const CAMERA_CAPTURE_SIZE = 416;
@@ -113,7 +113,7 @@ function nextResult() {
 }
 
 function chooseFiles() {
-  fileInput.value.accept = state.detection.mode === 'zip' ? '.zip,application/zip' : state.detection.mode === 'video' ? 'video/*' : 'image/*';
+  fileInput.value.accept = DETECTION_FILE_ACCEPTS[state.detection.mode] || DETECTION_FILE_ACCEPTS.single;
   fileInput.value.multiple = state.detection.mode === 'batch';
   fileInput.value.click();
 }
@@ -130,18 +130,31 @@ function setDetectionMode(mode) {
 }
 
 function onFiles(event) {
-  const items = fileItems(event.target.files);
+  const selected = fileItems(event.target.files);
   event.target.value = '';
+  const items = selected.filter(item => isAllowedDetectionFile(item, state.detection.mode));
+  if (items.length !== selected.length) {
+    toast(fileModeLabel(state.detection.mode), 'warning');
+  }
   state.detection.files = state.detection.mode === 'batch' ? items.slice(0, 30) : items.slice(0, 1);
   state.detection.results = [];
 }
 
 function isImageFile(item) {
-  return item?.type?.startsWith('image/');
+  return isImageUpload(item);
 }
 
 function isVideoFile(item) {
-  return item?.type?.startsWith('video/');
+  return isVideoUpload(item);
+}
+
+function fileModeLabel(mode) {
+  return {
+    single: '单图检测只能选择图片',
+    batch: '批量检测只能选择图片',
+    video: '视频检测只能选择视频',
+    zip: 'ZIP 检测只能选择 zip 压缩包',
+  }[mode] || '文件类型不支持';
 }
 
 function uploadSummary() {

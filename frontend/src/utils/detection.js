@@ -1,6 +1,17 @@
 import { api, apiUrl } from '../services/api';
 import { state } from '../state';
 
+export const DETECTION_FILE_ACCEPTS = {
+  single: 'image/*,.jpg,.jpeg,.png,.bmp,.webp',
+  batch: 'image/*,.jpg,.jpeg,.png,.bmp,.webp',
+  video: 'video/*,.mp4,.avi,.mov,.mkv,.wmv,.flv,.webm',
+  zip: '.zip,application/zip,application/x-zip-compressed',
+  attach: 'image/*,video/*,.jpg,.jpeg,.png,.bmp,.webp,.mp4,.avi,.mov,.mkv,.wmv,.flv,.webm,.zip,application/zip,application/x-zip-compressed',
+};
+
+const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.bmp', '.webp']);
+const VIDEO_EXTENSIONS = new Set(['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm']);
+
 export function fileItems(files) {
   return [...(files || [])].map(file => ({
     file,
@@ -9,6 +20,33 @@ export function fileItems(files) {
     type: file.type || (file.name.toLowerCase().endsWith('.zip') ? 'application/zip' : ''),
     preview: file.type?.startsWith('image/') || file.type?.startsWith('video/') ? URL.createObjectURL(file) : '',
   }));
+}
+
+function fileExtension(item = {}) {
+  const name = (item.name || item.file?.name || '').toLowerCase();
+  const index = name.lastIndexOf('.');
+  return index >= 0 ? name.slice(index) : '';
+}
+
+export function isImageUpload(item) {
+  return item?.type?.startsWith('image/') || IMAGE_EXTENSIONS.has(fileExtension(item));
+}
+
+export function isVideoUpload(item) {
+  return item?.type?.startsWith('video/') || VIDEO_EXTENSIONS.has(fileExtension(item));
+}
+
+export function isZipUpload(item) {
+  const type = item?.type || '';
+  return fileExtension(item) === '.zip' || type.includes('zip');
+}
+
+export function isAllowedDetectionFile(item, mode) {
+  if (mode === 'single' || mode === 'batch') return isImageUpload(item);
+  if (mode === 'video') return isVideoUpload(item);
+  if (mode === 'zip') return isZipUpload(item);
+  if (mode === 'attach') return isImageUpload(item) || isVideoUpload(item) || isZipUpload(item);
+  return true;
 }
 
 export function classLabel(name) {
