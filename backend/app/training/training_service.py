@@ -32,6 +32,17 @@ def _model_display_name(path_value: str | None) -> str | None:
     return path.stem or None
 
 
+def _worker_count(config: dict | None = None) -> int:
+    default_workers = 0 if os.name == "nt" else 2
+    value = (config or {}).get("workers")
+    if value is None:
+        return default_workers
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default_workers
+
+
 class TrainingService:
     """Create, run, monitor and stop YOLO training tasks."""
 
@@ -122,12 +133,25 @@ class TrainingService:
                 "verbose": True,
                 "save": True,
                 "plots": True,
+                "workers": _worker_count(config),
             }
 
             def on_train_epoch_end(trainer):
                 TrainingService._record_epoch_metric(task_id, trainer, config)
 
             model.add_callback("on_train_epoch_end", on_train_epoch_end)
+            task.progress = max(task.progress or 0, 1)
+            task.error_message = None
+            db.commit()
+            logger.info(
+                "Starting YOLO training: task_id=%s uuid=%s model=%s data=%s device=%s workers=%s",
+                task_id,
+                task_uuid,
+                model_file,
+                data_yaml_path,
+                train_kwargs["device"],
+                train_kwargs["workers"],
+            )
             model.train(**train_kwargs)
 
             task.status = "completed"
@@ -320,6 +344,7 @@ class TrainingService:
                 name=f"task_{task.task_uuid}_{split}_eval",
                 exist_ok=True,
                 verbose=False,
+                workers=_worker_count(),
             )
             report = _build_eval_report(task, model, results, split)
             model_version = _upsert_model_version(db, task, weights_path, report)

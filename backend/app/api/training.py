@@ -130,6 +130,7 @@ async def start_training(
         "img_size": request.img_size,
         "batch_size": request.batch_size,
         "device": request.device,
+        "workers": request.workers,
         "optimizer": request.optimizer,
         "lr0": request.lr0,
         "augment_config": request.augment_config,

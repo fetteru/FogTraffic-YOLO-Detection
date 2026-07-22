@@ -245,6 +245,7 @@ class TrainingTaskCreate(BaseModel):
     img_size: int = Field(default=640, description="Image size")
     batch_size: int = Field(default=16, ge=1, le=64, description="Batch size")
     device: str = Field(default="0", description="Training device")
+    workers: int = Field(default=0, ge=0, le=8, description="Dataloader workers")
     optimizer: str = Field(default="SGD", description="Optimizer")
     lr0: float = Field(default=0.01, description="Initial learning rate")
     augment_config: Optional[dict] = Field(None, description="Data augmentation config")
