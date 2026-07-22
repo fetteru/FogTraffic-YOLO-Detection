@@ -35,5 +35,6 @@ filterpy
 byte-tracker
 pillow
 matplotlib
-fastapi(可选，后端服务)
+fastapi
+node
 pymysql(可选，数据存储)
