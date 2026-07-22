@@ -27,15 +27,18 @@ function welcomeMessage() {
 
 export const state = reactive({
   page: location.hash?.replace('#', '') || 'chat',
-  token: localStorage.getItem('rsod_token') || '',
+  token: sessionStorage.getItem('rsod_token') || localStorage.getItem('rsod_token') || '',
   user: null,
   sidebarCollapsed: false,
+  mobileNavOpen: false,
+  theme: localStorage.getItem('fogtraffic_theme') || 'dark',
   settings: {
     apiBase: normalizeApiBase(persistedSettings.apiBase),
     confidence: Number(persistedSettings.confidence ?? 0.25),
     iou: Number(persistedSettings.iou ?? 0.45),
     defaultModel: persistedSettings.defaultModel || 'acdc_v1.0.0',
     selectedModelKey: persistedSettings.selectedModelKey || '',
+    themeAccent: persistedSettings.themeAccent || 'ocean',
     models: [],
   },
   toast: [],

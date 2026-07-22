@@ -12,6 +12,17 @@ const passwordForm = reactive({
 
 const modelOptions = computed(() => state.settings.models || []);
 const selectedModel = computed(() => modelOptions.value.find(item => item.key === state.settings.selectedModelKey) || null);
+const themeOptions = [
+  { key: 'dark', label: '深色主题' },
+  { key: 'light', label: '浅色主题' },
+];
+const accentOptions = [
+  { key: 'ocean', label: '蓝青', primary: '#38bdf8', secondary: '#6366f1' },
+  { key: 'violet', label: '紫藤', primary: '#8b5cf6', secondary: '#ec4899' },
+  { key: 'emerald', label: '翠绿', primary: '#10b981', secondary: '#14b8a6' },
+  { key: 'amber', label: '琥珀', primary: '#f59e0b', secondary: '#ef4444' },
+  { key: 'rose', label: '玫红', primary: '#f43f5e', secondary: '#8b5cf6' },
+];
 
 async function loadModels() {
   try {
@@ -36,8 +47,8 @@ function rangeProgress(value, min, max) {
 function save() {
   const model = selectedModel.value;
   if (model) state.settings.defaultModel = model.name || model.model_name;
+  localStorage.setItem('fogtraffic_theme', state.theme);
   persistSettings();
-  document.documentElement.dataset.theme = 'light';
   toast('设置已保存');
 }
 
@@ -109,7 +120,28 @@ onMounted(loadModels);
                 </option>
               </select>
             </label>
-            <label><span>界面主题</span><input value="light / 白色主题" disabled /></label>
+            <label>
+              <span>界面明暗</span>
+              <select v-model="state.theme">
+                <option v-for="item in themeOptions" :key="item.key" :value="item.key">{{ item.label }}</option>
+              </select>
+            </label>
+            <div class="theme-palette span-2">
+              <span>主题颜色</span>
+              <div class="theme-color-grid">
+                <button
+                  v-for="item in accentOptions"
+                  :key="item.key"
+                  type="button"
+                  :class="['theme-color-option', { active: state.settings.themeAccent === item.key }]"
+                  :style="{ '--swatch-a': item.primary, '--swatch-b': item.secondary }"
+                  @click="state.settings.themeAccent = item.key"
+                >
+                  <i></i>
+                  <strong>{{ item.label }}</strong>
+                </button>
+              </div>
+            </div>
             <label><span>置信度阈值 {{ state.settings.confidence.toFixed(2) }}</span><input v-model.number="state.settings.confidence" type="range" min="0.05" max="0.95" step="0.05" :style="{ '--range-progress': rangeProgress(state.settings.confidence, 0.05, 0.95) }" /></label>
             <label><span>IoU 阈值 {{ state.settings.iou.toFixed(2) }}</span><input v-model.number="state.settings.iou" type="range" min="0.1" max="0.9" step="0.05" :style="{ '--range-progress': rangeProgress(state.settings.iou, 0.1, 0.9) }" /></label>
           </div>

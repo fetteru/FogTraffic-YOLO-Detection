@@ -16,12 +16,19 @@ export function apiBase() {
 }
 
 export function token() {
-  return localStorage.getItem('rsod_token') || '';
+  return sessionStorage.getItem('rsod_token') || localStorage.getItem('rsod_token') || '';
 }
 
-export function setToken(value) {
-  if (value) localStorage.setItem('rsod_token', value);
-  else localStorage.removeItem('rsod_token');
+export function setToken(value, persistent = true) {
+  if (value) {
+    sessionStorage.removeItem('rsod_token');
+    localStorage.removeItem('rsod_token');
+    if (persistent) localStorage.setItem('rsod_token', value);
+    else sessionStorage.setItem('rsod_token', value);
+  } else {
+    localStorage.removeItem('rsod_token');
+    sessionStorage.removeItem('rsod_token');
+  }
 }
 
 export function apiUrl(path) {
