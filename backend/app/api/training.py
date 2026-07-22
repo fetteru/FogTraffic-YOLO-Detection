@@ -6,12 +6,12 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
-from app.api.auth import get_current_user
 from app.config.settings import settings
 from app.core.logger import get_logger
 from app.database.session import get_db
 from app.entity.db_models import DetectionScene
 from app.entity.schemas import ModelExportRequest, ModelValidateRequest, TrainingTaskCreate
+from app.middleware.permission_checker import require_permission
 from app.training.training_service import training_service
 
 
@@ -47,7 +47,7 @@ def _default_training_scene(db: Session) -> DetectionScene:
 @router.get("/datasets")
 async def list_training_datasets(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("dataset:view")),
 ):
     backend_dir = Path(__file__).resolve().parents[2]
     dataset_root = (backend_dir / settings.DATASET_BASE_DIR).resolve()
@@ -87,7 +87,7 @@ async def list_training_datasets(
 async def start_training(
     request: TrainingTaskCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:create")),
 ):
     scene = db.query(DetectionScene).filter(DetectionScene.id == request.scene_id).first()
     if not scene:
@@ -113,9 +113,19 @@ async def start_training(
             status_code=400,
             detail=f"data.yaml does not exist: {data_yaml}. Please prepare the dataset first.",
         )
+    base_model_path = None
+    if request.base_model_path:
+        project_root = Path(__file__).resolve().parents[3]
+        models_root = (project_root / "models").resolve()
+        base_model_path = Path(request.base_model_path).expanduser().resolve()
+        if models_root not in base_model_path.parents:
+            raise HTTPException(status_code=400, detail="base model must be inside project models directory")
+        if not base_model_path.exists():
+            raise HTTPException(status_code=400, detail=f"base model does not exist: {base_model_path}")
 
     config = {
         "model_name": request.model_name,
+        "base_model_path": str(base_model_path) if base_model_path else None,
         "epochs": request.epochs,
         "img_size": request.img_size,
         "batch_size": request.batch_size,
@@ -146,7 +156,7 @@ async def start_training(
 @router.get("/tasks")
 async def list_training_tasks(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:view")),
 ):
     tasks = training_service.get_task_list(db, user_id=current_user.id)
     return {"total": len(tasks), "items": tasks}
@@ -156,7 +166,7 @@ async def list_training_tasks(
 async def get_training_status(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:view")),
 ):
     status = training_service.get_training_status(db, task_id)
     if "error" in status:
@@ -168,7 +178,7 @@ async def get_training_status(
 async def get_training_metrics(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     metrics = training_service.get_training_metrics(db, task_id)
     return {"task_id": task_id, "total": len(metrics), "metrics": metrics}
@@ -178,7 +188,7 @@ async def get_training_metrics(
 async def stop_training(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:create")),
 ):
     result = training_service.stop_training(db, task_id)
     if "error" in result:
@@ -189,7 +199,7 @@ async def stop_training(
 @router.get("/results/{task_uuid}")
 async def get_results_csv(
     task_uuid: str,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     results_path = Path(settings.TRAIN_OUTPUT_DIR) / f"task_{task_uuid}" / "results.csv"
     if not results_path.exists():
@@ -206,7 +216,7 @@ async def validate_model(
     task_id: int,
     request: ModelValidateRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     result = training_service.validate_model(
         db=db,
@@ -226,7 +236,7 @@ async def export_model(
     task_id: int,
     request: ModelExportRequest,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     result = training_service.export_model(
         db=db,
@@ -245,7 +255,7 @@ async def export_model(
 async def download_model(
     task_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     result = training_service.get_model_download_path(db, task_id)
     if "error" in result:
@@ -264,7 +274,7 @@ async def predict_with_model(
     iou: float = Form(0.45),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("training:evaluate")),
 ):
     content = await file.read()
     result = training_service.predict_image(

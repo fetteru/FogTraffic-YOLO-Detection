@@ -10,7 +10,8 @@ const creating = ref(false);
 const selectedDatasetId = ref('');
 const form = reactive({
   name: '雨雾交通检测训练任务',
-  model_name: 'yolov11s',
+  base_model_key: '',
+  model_name: '',
   epochs: 100,
   img_size: 640,
   batch_size: 16,
@@ -20,13 +21,15 @@ const form = reactive({
 });
 
 const selectedDataset = computed(() => datasets.value.find(item => String(item.id) === String(selectedDatasetId.value)) || datasets.value[0] || null);
+const modelOptions = computed(() => state.settings.models || []);
+const selectedBaseModel = computed(() => modelOptions.value.find(item => item.key === form.base_model_key && item.exists) || null);
 
 function normalizeTask(task) {
   return {
     id: task.id,
     task_uuid: task.task_uuid || String(task.id),
-    name: task.task_name || task.name || `${task.model_name || 'YOLO'} 训练任务`,
-    model_name: task.model_name || 'yolov11',
+    name: task.task_name || task.name || `${task.model_name || '本地模型'} 训练任务`,
+    model_name: task.model_name || '本地模型',
     dataset_name: task.dataset_name || task.scene_name || '未命名数据集',
     device: task.device || '--',
     epochs: Number(task.epochs || 0),
@@ -64,6 +67,19 @@ async function loadDatasets() {
   if (!selectedDatasetId.value && datasets.value[0]) selectedDatasetId.value = datasets.value[0].id;
 }
 
+async function loadModels() {
+  const data = await api('/api/detection/models', { method: 'GET', timeout: 30000 });
+  state.settings.models = data.models || [];
+  const selectedExists = state.settings.models.some(item => item.key === form.base_model_key && item.exists);
+  if (!form.base_model_key || !selectedExists) {
+    const preferred =
+      state.settings.models.find(item => item.key === state.settings.selectedModelKey && item.exists) ||
+      state.settings.models.find(item => item.is_default && item.exists) ||
+      state.settings.models.find(item => item.exists);
+    form.base_model_key = preferred?.key || '';
+  }
+}
+
 async function loadTasks() {
   const data = await api('/api/training/tasks', { method: 'GET', timeout: 30000 });
   const items = Array.isArray(data) ? data : data.items || [];
@@ -73,7 +89,7 @@ async function loadTasks() {
 async function refreshAll() {
   loading.value = true;
   try {
-    await Promise.all([loadDatasets(), loadTasks()]);
+    await Promise.all([loadModels(), loadDatasets(), loadTasks()]);
   } catch (error) {
     toast(error.message, 'error');
   } finally {
@@ -83,6 +99,7 @@ async function refreshAll() {
 
 async function createTask() {
   if (!selectedDataset.value) return toast('请先准备可训练的数据集 data.yaml', 'warning');
+  if (!selectedBaseModel.value) return toast('请先选择可用的基础模型', 'warning');
   creating.value = true;
   try {
     await api('/api/training/start', {
@@ -92,7 +109,8 @@ async function createTask() {
         dataset_name: selectedDataset.value.name,
         dataset_path: selectedDataset.value.dataset_path,
         data_yaml: selectedDataset.value.data_yaml,
-        model_name: form.model_name,
+        model_name: selectedBaseModel.value.name || selectedBaseModel.value.model_name,
+        base_model_path: selectedBaseModel.value.path,
         epochs: Number(form.epochs),
         img_size: Number(form.img_size),
         batch_size: Number(form.batch_size),
@@ -153,7 +171,14 @@ onMounted(refreshAll);
             </select>
           </label>
           <label><span>任务名称</span><input v-model="form.name" /></label>
-          <label><span>基础模型</span><select v-model="form.model_name"><option>yolov11n</option><option>yolov11s</option><option>yolov11m</option></select></label>
+          <label>
+            <span>基础模型</span>
+            <select v-model="form.base_model_key" :disabled="!modelOptions.length">
+              <option v-for="model in modelOptions" :key="model.key" :value="model.key" :disabled="!model.exists">
+                {{ model.name || model.model_name }}{{ model.is_default ? ' · default' : '' }}
+              </option>
+            </select>
+          </label>
           <div class="form-grid">
             <label><span>Epochs</span><input v-model.number="form.epochs" type="number" min="1" max="500" /></label>
             <label><span>Batch</span><input v-model.number="form.batch_size" type="number" min="1" max="64" /></label>

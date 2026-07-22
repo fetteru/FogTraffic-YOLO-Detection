@@ -5,7 +5,14 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, hash_password, verify_password
-from app.entity.db_models import Role, User
+from app.entity.db_models import Role, User, UserRole
+from app.services.rbac_service import (
+    assign_roles_to_user,
+    ensure_rbac_seed,
+    get_user_permission_codes,
+    get_user_role_details,
+    get_user_role_names,
+)
 
 
 class UserService:
@@ -14,6 +21,7 @@ class UserService:
     @staticmethod
     def register(db: Session, username: str, email: str, password: str) -> User:
         """Register a new user."""
+        ensure_rbac_seed(db)
         existing_user = db.query(User).filter(User.username == username).first()
         if existing_user:
             raise HTTPException(status_code=400, detail="用户名已存在")
@@ -26,8 +34,13 @@ class UserService:
             username=username,
             email=email,
             hashed_password=hash_password(password),
+            is_superuser=False,
         )
         db.add(new_user)
+        db.flush()
+        default_role = db.query(Role).filter(Role.name == "operator").first()
+        if default_role:
+            db.add(UserRole(user_id=new_user.id, role_id=default_role.id))
         db.commit()
         db.refresh(new_user)
         return new_user
@@ -42,6 +55,11 @@ class UserService:
         )
         if not user or not verify_password(password, user.hashed_password):
             raise HTTPException(status_code=401, detail="用户名或密码错误")
+        from datetime import datetime
+
+        user.last_login_at = datetime.now()
+        db.commit()
+        db.refresh(user)
         return user
 
     @staticmethod
@@ -52,7 +70,17 @@ class UserService:
     @staticmethod
     def get_user_roles(db: Session, user: User) -> list[str]:
         """Get role codes for a user."""
-        return [user_role.role.name for user_role in user.user_roles]
+        return get_user_role_names(db, user)
+
+    @staticmethod
+    def get_user_role_details(db: Session, user: User) -> list[dict]:
+        """Get detailed roles for a user."""
+        return get_user_role_details(db, user)
+
+    @staticmethod
+    def get_user_permissions(db: Session, user: User) -> list[str]:
+        """Get permission codes for a user."""
+        return get_user_permission_codes(db, user)
 
     @staticmethod
     def get_user_by_id(db: Session, user_id: int) -> User:
@@ -91,6 +119,8 @@ class UserService:
                     "is_active": user.is_active,
                     "is_superuser": user.is_superuser,
                     "roles": UserService.get_user_roles(db, user),
+                    "role_details": UserService.get_user_role_details(db, user),
+                    "permissions": UserService.get_user_permissions(db, user),
                     "created_at": user.created_at,
                 }
                 for user in users
@@ -114,6 +144,31 @@ class UserService:
                 for role in roles
             ]
         }
+
+    @staticmethod
+    def set_user_roles(db: Session, user_id: int, role_ids: list[int]) -> dict:
+        """Replace roles assigned to a user."""
+        user = UserService.get_user_by_id(db, user_id)
+        assign_roles_to_user(db, user.id, role_ids)
+        db.commit()
+        db.refresh(user)
+        return {
+            "user_id": user.id,
+            "roles": UserService.get_user_role_details(db, user),
+            "permissions": UserService.get_user_permissions(db, user),
+        }
+
+    @staticmethod
+    def remove_user_role(db: Session, user_id: int, role_id: int) -> dict:
+        """Remove one role from a user."""
+        UserService.get_user_by_id(db, user_id)
+        removed = (
+            db.query(UserRole)
+            .filter(UserRole.user_id == user_id, UserRole.role_id == role_id)
+            .delete()
+        )
+        db.commit()
+        return {"message": "Role removed", "count": removed}
 
     @staticmethod
     def update_profile(

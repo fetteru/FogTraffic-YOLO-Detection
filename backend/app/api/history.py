@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.auth import get_current_user
+from app.middleware.permission_checker import require_permission
 from app.services.history_service import history_service
 
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -18,7 +18,7 @@ async def list_tasks(
     keyword: str | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("history:view")),
 ):
     return history_service.list_tasks(
         user_id=current_user.id,
@@ -34,20 +34,26 @@ async def list_tasks(
 
 
 @router.get("/tasks/{task_id}")
-async def get_task_detail(task_id: int, current_user=Depends(get_current_user)):
+async def get_task_detail(
+    task_id: int,
+    current_user=Depends(require_permission("history:view")),
+):
     return history_service.get_task_detail(user_id=current_user.id, task_id=task_id)
 
 
 @router.delete("/tasks/{task_id}")
-async def delete_task(task_id: int, current_user=Depends(get_current_user)):
+async def delete_task(
+    task_id: int,
+    current_user=Depends(require_permission("history:delete")),
+):
     return history_service.delete_task(user_id=current_user.id, task_id=task_id)
 
 
 @router.get("/summary")
-async def get_summary(current_user=Depends(get_current_user)):
+async def get_summary(current_user=Depends(require_permission("history:view"))):
     return history_service.get_summary(user_id=current_user.id)
 
 
 @router.get("/scenes")
-async def list_scenes(current_user=Depends(get_current_user)):
+async def list_scenes(current_user=Depends(require_permission("history:view"))):
     return history_service.list_scenes(user_id=current_user.id)

@@ -190,6 +190,12 @@ textarea {
   white-space: nowrap;
 }
 
+.user-mini-info {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
 .user-mini strong {
   color: #f8fafc;
   font-size: 12px;
@@ -198,6 +204,10 @@ textarea {
 .user-mini small {
   color: #8ca3bd;
   font-size: 10px;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  line-height: 1.35;
 }
 
 .user-mini button {
@@ -381,6 +391,18 @@ textarea {
   color: #b91c1c;
   background: rgba(254, 226, 226, 0.78);
   font-size: 13px;
+  font-weight: 800;
+  line-height: 1.45;
+}
+
+.auth-role-note {
+  margin: -4px 0 2px;
+  padding: 9px 11px;
+  border: 1px solid rgba(14, 165, 233, 0.18);
+  border-radius: 11px;
+  color: #2563eb;
+  background: rgba(224, 242, 254, 0.7);
+  font-size: 12px;
   font-weight: 800;
   line-height: 1.45;
 }

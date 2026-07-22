@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field
 class UserRegister(BaseModel):
     """User registration request."""
 
-    username: str = Field(..., min_length=2, max_length=50, description="Username")
+    username: str = Field(..., min_length=3, max_length=50, description="Username")
     email: str = Field(..., description="Email")
     password: str = Field(..., min_length=6, max_length=100, description="Password")
 
@@ -34,6 +34,7 @@ class UserBrief(BaseModel):
     email: str
     avatar: Optional[str] = None
     roles: list[str] = []
+    permissions: list[str] = []
 
     model_config = {
         "from_attributes": True,
@@ -59,6 +60,7 @@ class UserResponse(BaseModel):
     is_active: bool
     is_superuser: bool
     roles: list[str] = []
+    permissions: list[str] = []
     last_login_at: Optional[datetime] = None
     created_at: datetime
 
@@ -237,7 +239,8 @@ class TrainingTaskCreate(BaseModel):
     dataset_name: Optional[str] = Field(None, description="Dataset display name")
     dataset_path: Optional[str] = Field(None, description="Dataset directory")
     data_yaml: Optional[str] = Field(None, description="YOLO data.yaml path")
-    model_name: str = Field(default="yolov11n", description="Base model")
+    model_name: str = Field(default="local_model", description="Base model")
+    base_model_path: Optional[str] = Field(None, description="Base model weights path")
     epochs: int = Field(default=100, ge=1, le=500, description="Training epochs")
     img_size: int = Field(default=640, description="Image size")
     batch_size: int = Field(default=16, ge=1, le=64, description="Batch size")
@@ -349,7 +352,7 @@ class ModelVersionCreate(BaseModel):
     scene_id: int
     version: str = Field(..., description="Version")
     model_name: str = Field(..., description="Model name")
-    model_type: str = Field(default="yolov11n", description="Model type")
+    model_type: str = Field(default="local", description="Model type")
     description: Optional[str] = None
 
     model_config = {

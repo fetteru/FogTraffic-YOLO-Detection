@@ -9,8 +9,15 @@ import time
 import uuid
 from pathlib import Path
 
+from jose import JWTError
+from sqlalchemy.orm import Session
+
 from app.agent.alert_agent import save_alert
-from app.api.auth import get_current_user
+from app.core.security import decode_access_token
+from app.database.session import SessionLocal, get_db
+from app.entity.db_models import User
+from app.middleware.permission_checker import require_permission
+from app.services.rbac_service import user_has_permission
 from app.services.detection_service import VIDEO_EXTENSIONS, detection_service
 from app.storage.redis_client import redis_client
 from fastapi import (
@@ -18,9 +25,12 @@ from fastapi import (
     Depends,
     File,
     Form,
+    HTTPException,
     UploadFile,
     WebSocket,
+    WebSocketException,
     WebSocketDisconnect,
+    status,
 )
 from fastapi.responses import JSONResponse
 
@@ -32,16 +42,30 @@ _task_lock = threading.Lock()
 _server_started_at = time.time()
 
 
+@router.get("/models")
+async def list_models(current_user=Depends(require_permission("detection:model:list"))):
+    return {"models": detection_service.list_models()}
+
+
 @router.post("/single")
 async def detect_single(
     file: UploadFile = File(...),
     conf: float = Form(0.25),
     iou: float = Form(0.45),
-    current_user=Depends(get_current_user),
+    model_version_id: int | None = Form(None),
+    model_key: str | None = Form(None),
+    current_user=Depends(require_permission("detection:scan")),
+    db: Session = Depends(get_db),
 ):
+    _ensure_model_switch_allowed(db, current_user, model_version_id, model_key)
     content = await file.read()
     result = detection_service.detect_upload_bytes(
-        content, file.filename or "upload.jpg", conf=conf, iou=iou
+        content,
+        file.filename or "upload.jpg",
+        conf=conf,
+        iou=iou,
+        model_version_id=model_version_id,
+        model_key=model_key,
     )
     if "error" in result:
         return JSONResponse(status_code=400, content=result)
@@ -52,6 +76,7 @@ async def detect_single(
         conf=conf,
         iou=iou,
         task_name=file.filename or "single detection",
+        model_version_id=_selected_model_version_id(model_version_id, model_key, result.get("model")),
     )
     _persist_analysis_alert(result)
     return result
@@ -62,8 +87,12 @@ async def detect_batch(
     files: list[UploadFile] = File(...),
     conf: float = Form(0.25),
     iou: float = Form(0.45),
-    current_user=Depends(get_current_user),
+    model_version_id: int | None = Form(None),
+    model_key: str | None = Form(None),
+    current_user=Depends(require_permission("detection:batch")),
+    db: Session = Depends(get_db),
 ):
+    _ensure_model_switch_allowed(db, current_user, model_version_id, model_key)
     tmp_paths = []
     try:
         for upload in files:
@@ -71,7 +100,13 @@ async def detect_batch(
             with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
                 tmp_file.write(await upload.read())
                 tmp_paths.append(tmp_file.name)
-        result = detection_service.detect_batch(tmp_paths, conf=conf, iou=iou)
+        result = detection_service.detect_batch(
+            tmp_paths,
+            conf=conf,
+            iou=iou,
+            model_version_id=model_version_id,
+            model_key=model_key,
+        )
         if "error" in result:
             return JSONResponse(status_code=400, content=result)
         result["db_task_id"] = detection_service.save_detection_result(
@@ -81,6 +116,7 @@ async def detect_batch(
             conf=conf,
             iou=iou,
             task_name="batch detection",
+            model_version_id=_selected_model_version_id(model_version_id, model_key, result.get("model")),
         )
         _persist_analysis_alert(result)
         return result
@@ -93,14 +129,24 @@ async def detect_zip(
     file: UploadFile = File(...),
     conf: float = Form(0.25),
     iou: float = Form(0.45),
-    current_user=Depends(get_current_user),
+    model_version_id: int | None = Form(None),
+    model_key: str | None = Form(None),
+    current_user=Depends(require_permission("detection:zip")),
+    db: Session = Depends(get_db),
 ):
+    _ensure_model_switch_allowed(db, current_user, model_version_id, model_key)
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp_file:
             tmp_file.write(await file.read())
             tmp_path = tmp_file.name
-        result = detection_service.detect_zip(tmp_path, conf=conf, iou=iou)
+        result = detection_service.detect_zip(
+            tmp_path,
+            conf=conf,
+            iou=iou,
+            model_version_id=model_version_id,
+            model_key=model_key,
+        )
         if "error" in result:
             return JSONResponse(status_code=400, content=result)
         result["db_task_id"] = detection_service.save_detection_result(
@@ -110,6 +156,7 @@ async def detect_zip(
             conf=conf,
             iou=iou,
             task_name=file.filename or "zip detection",
+            model_version_id=_selected_model_version_id(model_version_id, model_key, result.get("model")),
         )
         _persist_analysis_alert(result)
         return result
@@ -125,8 +172,12 @@ async def detect_video(
     iou: float = Form(0.45),
     sample_interval: int = Form(5),
     max_frames: int = Form(0),
-    current_user=Depends(get_current_user),
+    model_version_id: int | None = Form(None),
+    model_key: str | None = Form(None),
+    current_user=Depends(require_permission("detection:video")),
+    db: Session = Depends(get_db),
 ):
+    _ensure_model_switch_allowed(db, current_user, model_version_id, model_key)
     filename = file.filename or "upload.mp4"
     suffix = Path(filename).suffix.lower()
     if suffix not in VIDEO_EXTENSIONS:
@@ -148,6 +199,7 @@ async def detect_video(
         iou=iou,
         task_name=filename,
         source_type="video",
+        model_version_id=_selected_model_version_id(model_version_id, model_key),
     )
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
         tmp_file.write(content)
@@ -166,7 +218,17 @@ async def detect_video(
 
     thread = threading.Thread(
         target=_run_video_task,
-        args=(task_id, tmp_path, conf, iou, sample_interval, max_frames, db_task_id),
+        args=(
+            task_id,
+            tmp_path,
+            conf,
+            iou,
+            sample_interval,
+            max_frames,
+            db_task_id,
+            model_version_id,
+            model_key,
+        ),
         daemon=True,
     )
     thread.start()
@@ -174,7 +236,10 @@ async def detect_video(
 
 
 @router.get("/video/status/{task_id}")
-async def get_video_status(task_id: str, current_user=Depends(get_current_user)):
+async def get_video_status(
+    task_id: str,
+    current_user=Depends(require_permission("detection:video")),
+):
     task = redis_client.get_json(f"video_task:{task_id}") or _get_task(task_id)
     if not task:
         return JSONResponse(status_code=404, content={"error": "video task not found"})
@@ -196,8 +261,15 @@ async def get_video_status(task_id: str, current_user=Depends(get_current_user))
 
 @router.websocket("/camera")
 async def detect_camera(websocket: WebSocket):
+    websocket_user = _authorize_websocket_permission(websocket, "detection:camera")
     await websocket.accept()
-    config = {"mode": "cpu", "conf": 0.25, "iou": 0.45}
+    config = {
+        "mode": "cpu",
+        "conf": 0.25,
+        "iou": 0.45,
+        "model_version_id": None,
+        "model_key": None,
+    }
     frames = 0
     fps = 0
     fps_started = time.perf_counter()
@@ -206,11 +278,23 @@ async def detect_camera(websocket: WebSocket):
             payload = await websocket.receive_json()
             msg_type = payload.get("type")
             if msg_type == "config":
+                next_model_version_id = payload.get("model_version_id")
+                next_model_key = payload.get("model_key")
+                if (next_model_version_id or next_model_key) and not websocket_user["can_switch_model"]:
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "message": "Permission required: detection:model:switch",
+                        }
+                    )
+                    continue
                 config.update(
                     {
                         "mode": payload.get("mode", "cpu"),
                         "conf": float(payload.get("conf", 0.25)),
                         "iou": float(payload.get("iou", 0.45)),
+                        "model_version_id": next_model_version_id,
+                        "model_key": next_model_key,
                     }
                 )
                 await websocket.send_json({"type": "config_ok", **config})
@@ -220,6 +304,8 @@ async def detect_camera(websocket: WebSocket):
                     conf=config["conf"],
                     iou=config["iou"],
                     mode=config["mode"],
+                    model_version_id=config.get("model_version_id"),
+                    model_key=config.get("model_key"),
                 )
                 if "error" in result:
                     await websocket.send_json(
@@ -251,6 +337,8 @@ def _run_video_task(
     sample_interval: int,
     max_frames: int,
     db_task_id: int | None,
+    model_version_id: int | None,
+    model_key: str | None,
 ) -> None:
     try:
         _update_task(task_id, status="processing", progress=1, message="视频任务已开始")
@@ -263,6 +351,8 @@ def _run_video_task(
             max_frames=max_frames,
             db_task_id=db_task_id,
             progress_callback=lambda progress: _update_task(task_id, progress=progress),
+            model_version_id=model_version_id,
+            model_key=model_key,
         )
         if "error" in result:
             detection_service.mark_detection_task_failed(db_task_id, result["error"])
@@ -312,3 +402,69 @@ def _persist_analysis_alert(result: dict) -> None:
         return
     alert_id = save_alert(db_task_id, alert)
     alert["alert_id"] = alert_id
+
+
+def _ensure_model_switch_allowed(
+    db: Session,
+    current_user: User,
+    model_version_id: int | None,
+    model_key: str | None,
+) -> None:
+    if not model_version_id and not model_key:
+        return
+    if user_has_permission(db, current_user, "detection:model:switch"):
+        return
+    raise HTTPException(
+        status_code=403,
+        detail="Permission required: detection:model:switch",
+    )
+
+
+def _authorize_websocket_permission(websocket: WebSocket, permission_code: str) -> dict:
+    token = websocket.query_params.get("token") or ""
+    if token.lower().startswith("bearer "):
+        token = token.split(" ", 1)[1].strip()
+    if not token:
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Missing authentication token",
+        )
+
+    db = SessionLocal()
+    try:
+        payload = decode_access_token(token)
+        user_id = int(payload.get("sub") or 0)
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user or not user_has_permission(db, user, permission_code):
+            raise WebSocketException(
+                code=status.WS_1008_POLICY_VIOLATION,
+                reason=f"Permission required: {permission_code}",
+            )
+        return {
+            "id": user.id,
+            "can_switch_model": user_has_permission(db, user, "detection:model:switch"),
+        }
+    except (JWTError, ValueError, TypeError):
+        raise WebSocketException(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Invalid authentication token",
+        )
+    finally:
+        db.close()
+
+
+def _selected_model_version_id(
+    model_version_id: int | None,
+    model_key: str | None,
+    model_info: dict | None = None,
+) -> int | None:
+    if model_version_id:
+        return model_version_id
+    if model_info and model_info.get("model_version_id"):
+        return int(model_info["model_version_id"])
+    if model_key and model_key.startswith("db:"):
+        try:
+            return int(model_key.split(":", 1)[1])
+        except ValueError:
+            return None
+    return None

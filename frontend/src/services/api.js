@@ -1,9 +1,15 @@
-const DEFAULT_API_BASE = 'http://localhost:8000';
+const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
+const LEGACY_DEFAULT_API_BASE = 'http://localhost:8000';
+
+function normalizeApiBase(value) {
+  const base = value || DEFAULT_API_BASE;
+  return base === LEGACY_DEFAULT_API_BASE ? DEFAULT_API_BASE : base;
+}
 
 export function apiBase() {
   try {
     const settings = JSON.parse(localStorage.getItem('fogtraffic_vue_settings') || '{}');
-    return settings.apiBase || DEFAULT_API_BASE;
+    return normalizeApiBase(settings.apiBase);
   } catch {
     return DEFAULT_API_BASE;
   }

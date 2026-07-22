@@ -37,7 +37,10 @@ export function normalizeDetection(payload = {}, fileItem = {}, mode = 'single',
     id: payload.task_id || `${mode}_${Date.now()}_${index}`,
     filename: payload.filename || fileItem.name || `result_${index + 1}`,
     mode,
-    model: payload.model || 'yolov11s-rsod-v3.2',
+    model: typeof payload.model === 'object'
+      ? (payload.model.name || payload.model.model_name || payload.model.key)
+      : (payload.model || 'local_model'),
+    modelKey: typeof payload.model === 'object' ? payload.model.key : '',
     total: Number(payload.total_objects ?? payload.total ?? 0),
     counts,
     boxes: payload.detections || [],
@@ -88,6 +91,8 @@ export async function detectFiles(mode, items, options = {}) {
   const form = new FormData();
   form.append('conf', String(options.confidence ?? 0.25));
   form.append('iou', String(options.iou ?? 0.45));
+  if (options.selectedModelKey) form.append('model_key', options.selectedModelKey);
+  if (options.modelVersionId) form.append('model_version_id', String(options.modelVersionId));
   if (isVideo) {
     form.append('sample_interval', String(options.sampleInterval ?? 5));
     form.append('max_frames', '0');

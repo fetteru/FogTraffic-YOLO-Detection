@@ -60,7 +60,12 @@ env/
 *.onnx
 *.engine
 *.weights
-models/
+/models/
+!/models/
+/models/*
+!/models/acdc_v1.0.0/
+!/models/acdc_v1.0.0/best.pt
+/backend/models/
 weights/
 checkpoints/
 

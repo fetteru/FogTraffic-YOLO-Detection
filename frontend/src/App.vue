@@ -1,7 +1,6 @@
 <script setup>
 import { computed, onMounted } from 'vue';
 import { Box, ChevronLeft, LogOut, Menu } from 'lucide-vue-next';
-import StatusBadge from './components/StatusBadge.vue';
 import LoginPage from './pages/LoginPage.vue';
 import ChatPage from './pages/ChatPage.vue';
 import DetectionPage from './pages/DetectionPage.vue';
@@ -10,13 +9,15 @@ import DatasetsPage from './pages/DatasetsPage.vue';
 import EvaluationPage from './pages/EvaluationPage.vue';
 import DashboardPage from './pages/DashboardPage.vue';
 import HistoryPage from './pages/HistoryPage.vue';
+import RoleManagementPage from './pages/RoleManagementPage.vue';
 import SettingsPage from './pages/SettingsPage.vue';
+import UserManagementPage from './pages/UserManagementPage.vue';
 import { api, setToken } from './services/api';
-import { navItems, resetUserScopedState, state, toast } from './state';
+import { navItems, resetUserScopedState, state, toast, userCanSee, userRoles } from './state';
 
 const groupedNav = computed(() => {
   const groups = [];
-  for (const item of navItems) {
+  for (const item of navItems.filter(userCanSee)) {
     let group = groups.find(row => row.name === item.group);
     if (!group) {
       group = { name: item.group, items: [] };
@@ -29,7 +30,17 @@ const groupedNav = computed(() => {
 
 const currentTitle = computed(() => navItems.find(item => item.key === state.page)?.label || '智能对话');
 
+const roleLabel = computed(() => {
+  if (state.user?.is_superuser) return '管理员';
+  const labels = { admin: '管理员', operator: '操作员', viewer: '普通用户' };
+  return userRoles().map(role => labels[role] || role).join(' / ') || '普通用户';
+});
+
+const permissionCount = computed(() => (state.user?.is_superuser ? '全部' : `${state.user?.permissions?.length || 0}`));
+
 function navigate(page) {
+  const item = navItems.find(row => row.key === page);
+  if (item && !userCanSee(item)) return;
   state.page = page;
   location.hash = page;
 }
@@ -50,6 +61,9 @@ async function loadUser() {
       resetUserScopedState();
     }
     state.user = user;
+    if (!userCanSee(navItems.find(item => item.key === state.page) || {})) {
+      navigate('chat');
+    }
   } catch {
     setToken('');
     state.token = '';
@@ -60,7 +74,9 @@ async function loadUser() {
 
 onMounted(() => {
   window.addEventListener('hashchange', () => {
-    state.page = location.hash.replace('#', '') || 'chat';
+    const page = location.hash.replace('#', '') || 'chat';
+    const item = navItems.find(row => row.key === page);
+    state.page = item && userCanSee(item) ? page : 'chat';
   });
   loadUser();
 });
@@ -86,10 +102,11 @@ onMounted(() => {
         </section>
       </nav>
       <div class="sidebar-footer">
-        <div class="service-mini"><StatusBadge status="healthy" /><span>全部服务正常</span></div>
         <div class="user-mini">
-          <strong>{{ state.user?.display_name || state.user?.username || 'lzq' }}</strong>
-          <small>普通用户</small>
+          <div class="user-mini-info" :title="`${roleLabel} · ${permissionCount} 权限`">
+            <strong>{{ state.user?.display_name || state.user?.username || 'admin' }}</strong>
+            <small>{{ roleLabel }} · {{ permissionCount }} 权限</small>
+          </div>
           <button @click="logout"><LogOut :size="15" /></button>
         </div>
       </div>
@@ -111,6 +128,8 @@ onMounted(() => {
         <EvaluationPage v-else-if="state.page === 'evaluation'" />
         <DashboardPage v-else-if="state.page === 'dashboard'" />
         <HistoryPage v-else-if="state.page === 'history'" />
+        <UserManagementPage v-else-if="state.page === 'users'" />
+        <RoleManagementPage v-else-if="state.page === 'roles'" />
         <SettingsPage v-else-if="state.page === 'settings'" />
       </section>
     </main>

@@ -2,11 +2,19 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { ChevronLeft, ChevronRight, Play, Upload } from 'lucide-vue-next';
 import DetectionResult from '../components/DetectionResult.vue';
+import { api, token } from '../services/api';
 import { detectFiles, fileItems, normalizeDetection } from '../utils/detection';
-import { state, toast } from '../state';
+import { persistSettings, state, toast } from '../state';
 
 const CAMERA_CAPTURE_SIZE = 416;
 const CAMERA_FRAME_DELAY = 300;
+const DETECTION_MODE_PERMISSIONS = {
+  single: 'detection:scan',
+  batch: 'detection:batch',
+  zip: 'detection:zip',
+  video: 'detection:video',
+  camera: 'detection:camera',
+};
 
 const fileInput = ref(null);
 const videoRef = ref(null);
@@ -26,6 +34,10 @@ const selectedResultPosition = computed(() => (resultCount.value ? state.detecti
 const isCameraMode = computed(() => state.detection.mode === 'camera');
 const uploadedFiles = computed(() => state.detection.files || []);
 const firstUploadedFile = computed(() => uploadedFiles.value[0] || null);
+const modelOptions = computed(() => state.settings.models || []);
+const selectedModel = computed(() => modelOptions.value.find(item => item.key === state.settings.selectedModelKey) || null);
+const canSwitchModels = computed(() => hasPermission('detection:model:switch'));
+const canRunCurrentMode = computed(() => canUseDetectionMode(state.detection.mode));
 const cameraStatus = computed(() => {
   const camera = state.detection.camera;
   if (camera.error) return camera.error;
@@ -46,6 +58,51 @@ function rangeProgress(value, min, max) {
   return `${Math.min(100, Math.max(0, percent))}%`;
 }
 
+function hasPermission(permission) {
+  if (!permission) return true;
+  if (state.user?.is_superuser) return true;
+  return (state.user?.permissions || []).includes(permission);
+}
+
+function canUseDetectionMode(mode) {
+  return hasPermission(DETECTION_MODE_PERMISSIONS[mode]);
+}
+
+function firstAllowedMode() {
+  return Object.keys(DETECTION_MODE_PERMISSIONS).find(mode => canUseDetectionMode(mode)) || 'single';
+}
+
+async function loadModels() {
+  try {
+    const data = await api('/api/detection/models', { method: 'GET', timeout: 30000 });
+    state.settings.models = data.models || [];
+    if (!canSwitchModels.value) {
+      state.settings.selectedModelKey = '';
+      persistSettings();
+      return;
+    }
+    if (!state.settings.selectedModelKey && state.settings.models.length) {
+      const preferred = state.settings.models.find(item => item.is_default && item.exists) || state.settings.models.find(item => item.exists);
+      state.settings.selectedModelKey = preferred?.key || '';
+      persistSettings();
+    }
+  } catch (error) {
+    state.settings.models = [];
+  }
+}
+
+function selectModel() {
+  if (!canSwitchModels.value) {
+    state.settings.selectedModelKey = '';
+    persistSettings();
+    toast('当前角色没有切换模型权限', 'warning');
+    return;
+  }
+  const model = selectedModel.value;
+  state.settings.defaultModel = model?.name || model?.model_name || state.settings.defaultModel;
+  persistSettings();
+}
+
 function selectResult(index) {
   if (!resultCount.value) return;
   const next = (index + resultCount.value) % resultCount.value;
@@ -61,12 +118,17 @@ function nextResult() {
 }
 
 function chooseFiles() {
+  if (!canRunCurrentMode.value) return toast('当前角色没有此检测权限', 'warning');
   fileInput.value.accept = state.detection.mode === 'zip' ? '.zip,application/zip' : state.detection.mode === 'video' ? 'video/*' : 'image/*';
   fileInput.value.multiple = state.detection.mode === 'batch';
   fileInput.value.click();
 }
 
 function setDetectionMode(mode) {
+  if (!canUseDetectionMode(mode)) {
+    toast('当前角色没有此检测权限', 'warning');
+    return;
+  }
   const changed = state.detection.mode !== mode;
   if (state.detection.mode === 'camera' && mode !== 'camera') stopCamera();
   state.detection.mode = mode;
@@ -99,6 +161,7 @@ function uploadSummary() {
 }
 
 async function runDetection() {
+  if (!canRunCurrentMode.value) return toast('当前角色没有此检测权限', 'warning');
   if (isCameraMode.value) {
     await startCamera();
     return;
@@ -132,7 +195,10 @@ function resetCameraSession() {
 function makeCameraSocketUrl() {
   const base = state.settings.apiBase || window.location.origin;
   const wsBase = base.replace(/^https?:/i, match => (match.toLowerCase() === 'https:' ? 'wss:' : 'ws:'));
-  return new URL('/api/detection/camera', wsBase).toString();
+  const url = new URL('/api/detection/camera', wsBase);
+  const currentToken = token();
+  if (currentToken) url.searchParams.set('token', currentToken);
+  return url.toString();
 }
 
 async function ensureCameraStream(runId) {
@@ -264,6 +330,7 @@ async function startCamera() {
         mode: 'cpu',
         conf: state.settings.confidence,
         iou: state.settings.iou,
+        model_key: canSwitchModels.value ? state.settings.selectedModelKey || null : null,
       }));
     };
     socket.onmessage = event => handleCameraMessage(event, runId);
@@ -475,6 +542,14 @@ function saveCameraResult() {
 }
 
 onMounted(() => {
+  if (!canRunCurrentMode.value) {
+    state.detection.mode = firstAllowedMode();
+  }
+  if (!canSwitchModels.value) {
+    state.settings.selectedModelKey = '';
+    persistSettings();
+  }
+  loadModels();
   if (state.detection.mode === 'camera') {
     state.detection.results = state.detection.results.filter(result => result.mode === 'camera');
     state.detection.selected = 0;
@@ -490,7 +565,7 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
       <div><h1>交通检测工作台</h1><p>图片、批量、ZIP、视频和摄像头检测</p></div>
       <button
         class="btn btn-primary"
-        :disabled="state.detection.running || state.detection.camera.connecting || (!isCameraMode && !state.detection.files.length)"
+        :disabled="!canRunCurrentMode || state.detection.running || state.detection.camera.connecting || (!isCameraMode && !state.detection.files.length)"
         @click="runDetection"
       >
         <Play :size="16" />{{ primaryButtonText }}
@@ -503,6 +578,8 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
             v-for="mode in ['single','batch','zip','video','camera']"
             :key="mode"
             :class="{ active: state.detection.mode === mode }"
+            :disabled="!canUseDetectionMode(mode)"
+            :title="canUseDetectionMode(mode) ? '' : '当前角色没有此检测权限'"
             @click="setDetectionMode(mode)"
           >{{ { single: '单图', batch: '批量', zip: 'ZIP', video: '视频', camera: '摄像头' }[mode] }}</button>
         </div>
@@ -548,7 +625,7 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
             <div class="camera-status">{{ cameraStatus }}</div>
           </div>
           <div class="camera-actions">
-            <button class="btn btn-primary btn-sm" :disabled="state.detection.camera.connecting" @click="startCamera">
+            <button class="btn btn-primary btn-sm" :disabled="!canRunCurrentMode || state.detection.camera.connecting" @click="startCamera">
               {{ state.detection.camera.connecting ? '连接中...' : state.detection.camera.active ? '重新连接检测' : '开启摄像头检测' }}
             </button>
             <button class="btn btn-ghost btn-sm" :disabled="!state.detection.camera.active || state.detection.camera.connecting" @click="toggleCameraPause">
@@ -571,6 +648,15 @@ onBeforeUnmount(() => stopCamera({ silent: true }));
           </div>
         </div>
         <div class="form-grid one-col">
+          <label>
+            <span>检测模型</span>
+            <select v-model="state.settings.selectedModelKey" :disabled="!canSwitchModels" @change="selectModel">
+              <option value="">自动选择可用模型</option>
+              <option v-for="model in modelOptions" :key="model.key" :value="model.key" :disabled="!model.exists">
+                {{ model.name || model.model_name }}{{ model.version ? ` · ${model.version}` : '' }}{{ model.is_default ? ' · default' : '' }}
+              </option>
+            </select>
+          </label>
           <label><span>置信度阈值 {{ state.settings.confidence.toFixed(2) }}</span><input v-model.number="state.settings.confidence" type="range" min="0.05" max="0.95" step="0.05" :style="{ '--range-progress': rangeProgress(state.settings.confidence, 0.05, 0.95) }" /></label>
           <label><span>IoU 阈值 {{ state.settings.iou.toFixed(2) }}</span><input v-model.number="state.settings.iou" type="range" min="0.1" max="0.9" step="0.05" :style="{ '--range-progress': rangeProgress(state.settings.iou, 0.1, 0.9) }" /></label>
         </div>

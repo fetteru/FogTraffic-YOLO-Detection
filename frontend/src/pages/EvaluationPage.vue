@@ -18,8 +18,8 @@ function normalizeTask(task) {
   return {
     id: task.id,
     task_uuid: task.task_uuid || String(task.id),
-    name: task.task_name || task.name || `${task.model_name || 'YOLO'} 训练任务`,
-    model_name: task.model_name || 'yolov11',
+    name: task.task_name || task.name || `${task.model_name || '本地模型'} 训练任务`,
+    model_name: task.model_name || '本地模型',
     dataset_name: task.dataset_name || task.scene_name || '未命名数据集',
     status: task.status || 'unknown',
     progress: Number(task.progress || 0),

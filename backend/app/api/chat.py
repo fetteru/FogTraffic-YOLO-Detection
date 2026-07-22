@@ -13,7 +13,7 @@ from fastapi.responses import StreamingResponse
 from starlette.datastructures import UploadFile
 
 from app.agent.detection_agent import detection_agent
-from app.api.auth import get_current_user
+from app.middleware.permission_checker import require_permission
 
 
 router = APIRouter(prefix="/api", tags=["chat"])
@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api", tags=["chat"])
 @router.post("/chat/stream")
 async def chat_stream(
     request: Request,
-    current_user=Depends(get_current_user),
+    current_user=Depends(require_permission("agent:chat")),
 ):
     message, session_id, files = await _parse_chat_request(request)
     tmp_paths = []

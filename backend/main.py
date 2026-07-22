@@ -13,6 +13,8 @@ from app.api.detection import router as detection_router
 from app.api.history import router as history_router
 from app.api.health import router as health_router
 from app.api.knowledge import router as knowledge_router
+from app.api.permission import router as permission_router
+from app.api.role import router as role_router
 from app.api.training import router as training_router
 from app.api.user import router as user_router
 from app.config.settings import settings
@@ -40,11 +42,28 @@ def init_minio() -> None:
         logger.warning("MinIO initialization skipped: %s", exc)
 
 
+def init_rbac() -> None:
+    """Initialize built-in roles and permissions."""
+    try:
+        from app.database.session import SessionLocal
+        from app.services.rbac_service import ensure_rbac_seed
+
+        db = SessionLocal()
+        try:
+            ensure_rbac_seed(db, commit=True)
+        finally:
+            db.close()
+        logger.info("RBAC roles and permissions initialized")
+    except Exception as exc:
+        logger.warning("RBAC initialization skipped: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     """Application lifecycle manager."""
     logger.info("Initializing services...")
     init_minio()
+    init_rbac()
     yield
     logger.info("Service stopped")
 
@@ -81,6 +100,8 @@ app.include_router(detection_router)
 app.include_router(dashboard_router)
 app.include_router(history_router)
 app.include_router(user_router)
+app.include_router(role_router)
+app.include_router(permission_router)
 app.include_router(knowledge_router)
 app.include_router(chat_router)
 

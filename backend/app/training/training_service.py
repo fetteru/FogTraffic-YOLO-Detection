@@ -23,6 +23,15 @@ _running_tasks: dict[str, object] = {}
 _running_lock = threading.Lock()
 
 
+def _model_display_name(path_value: str | None) -> str | None:
+    if not path_value:
+        return None
+    path = Path(path_value)
+    if path.name.lower() == "best.pt" and path.parent.name:
+        return path.parent.name
+    return path.stem or None
+
+
 class TrainingService:
     """Create, run, monitor and stop YOLO training tasks."""
 
@@ -33,13 +42,14 @@ class TrainingService:
         data_yaml = config.get("data_yaml") or (
             os.path.join(dataset_path, "data.yaml") if dataset_path else None
         )
+        model_name = config.get("model_name") or _model_display_name(config.get("base_model_path")) or "local_model"
 
         task = TrainingTask(
             user_id=user_id,
             scene_id=scene_id,
             task_uuid=task_uuid,
             status="pending",
-            model_name=config.get("model_name", "yolov11n"),
+            model_name=model_name,
             epochs=config.get("epochs", 50),
             img_size=config.get("img_size", 640),
             batch_size=config.get("batch_size", 8),
@@ -85,8 +95,9 @@ class TrainingService:
 
             from ultralytics import YOLO
 
-            model_name = config.get("model_name", "yolov11n")
-            model_file = model_name if model_name.endswith(".pt") else f"{model_name}.pt"
+            model_name = config.get("model_name") or "local_model"
+            base_model_path = config.get("base_model_path")
+            model_file = base_model_path or (model_name if model_name.endswith(".pt") else f"{model_name}.pt")
             model = YOLO(model_file)
             with _running_lock:
                 _running_tasks[task_uuid] = model

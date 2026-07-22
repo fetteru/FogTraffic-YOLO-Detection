@@ -57,8 +57,8 @@ async function register() {
     toast(authError.value, 'warning');
     return;
   }
-  if (username.length < 2) {
-    authError.value = '用户名至少需要 2 个字符';
+  if (username.length < 3) {
+    authError.value = '用户名至少需要 3 个字符';
     toast(authError.value, 'warning');
     return;
   }
@@ -138,10 +138,11 @@ function switchMode(nextMode) {
       </div>
 
       <form class="auth-form" autocomplete="off" @submit.prevent="submitAuth">
-        <label><span>用户名</span><input v-model="form.username" autocomplete="off" minlength="2" maxlength="50" /></label>
+        <label><span>用户名</span><input v-model="form.username" autocomplete="off" minlength="3" maxlength="50" /></label>
         <label v-if="isRegister"><span>邮箱</span><input v-model="form.email" type="email" autocomplete="off" placeholder="example@qq.com" /></label>
         <label><span>密码</span><input v-model="form.password" type="password" autocomplete="new-password" /></label>
         <label v-if="isRegister"><span>确认密码</span><input v-model="form.confirmPassword" type="password" autocomplete="new-password" /></label>
+        <p v-if="isRegister" class="auth-role-note">注册后默认是操作员；管理员可以在用户管理里调整角色。</p>
         <p v-if="authError" class="auth-error">{{ authError }}</p>
         <button class="btn btn-primary" type="submit" :disabled="busy">{{ busy ? '处理中...' : isRegister ? '注册并登录' : '登录' }}</button>
       </form>

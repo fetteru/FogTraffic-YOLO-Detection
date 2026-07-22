@@ -8,6 +8,14 @@ const persistedSettings = (() => {
   }
 })();
 
+const DEFAULT_API_BASE = 'http://127.0.0.1:8000';
+const LEGACY_DEFAULT_API_BASE = 'http://localhost:8000';
+
+function normalizeApiBase(value) {
+  const base = value || DEFAULT_API_BASE;
+  return base === LEGACY_DEFAULT_API_BASE ? DEFAULT_API_BASE : base;
+}
+
 function welcomeMessage() {
   return {
     id: crypto.randomUUID(),
@@ -23,10 +31,12 @@ export const state = reactive({
   user: null,
   sidebarCollapsed: false,
   settings: {
-    apiBase: persistedSettings.apiBase || 'http://localhost:8000',
+    apiBase: normalizeApiBase(persistedSettings.apiBase),
     confidence: Number(persistedSettings.confidence ?? 0.25),
     iou: Number(persistedSettings.iou ?? 0.45),
-    defaultModel: persistedSettings.defaultModel || 'yolov11s-rsod-v3.2',
+    defaultModel: persistedSettings.defaultModel || 'acdc_v1.0.0',
+    selectedModelKey: persistedSettings.selectedModelKey || '',
+    models: [],
   },
   toast: [],
   chat: {
@@ -65,15 +75,46 @@ export const state = reactive({
 });
 
 export const navItems = [
-  { key: 'chat', label: '智能对话', group: '工作台' },
-  { key: 'detection', label: '交通检测工作台', group: '工作台' },
-  { key: 'datasets', label: '数据集管理', group: '模型闭环' },
-  { key: 'training', label: '模型训练', group: '模型闭环' },
-  { key: 'evaluation', label: '模型评估', group: '模型闭环' },
-  { key: 'dashboard', label: '数据看板', group: '分析与运维' },
-  { key: 'history', label: '任务历史', group: '分析与运维' },
-  { key: 'settings', label: '系统设置', group: '系统' },
+  { key: 'chat', label: '智能对话', group: '工作台', permissions: ['agent:chat'] },
+  { key: 'detection', label: '交通检测工作台', group: '工作台', permissions: ['detection:scan'] },
+  { key: 'datasets', label: '数据集管理', group: '模型闭环', permissions: ['dataset:view'] },
+  { key: 'training', label: '模型训练', group: '模型闭环', permissions: ['training:view'] },
+  { key: 'evaluation', label: '模型评估', group: '模型闭环', permissions: ['training:evaluate'] },
+  { key: 'dashboard', label: '数据看板', group: '分析与运维', permissions: ['dashboard:view'] },
+  { key: 'history', label: '任务历史', group: '分析与运维', permissions: ['history:view'] },
+  { key: 'settings', label: '系统设置', group: '系统', permissions: ['system:settings'] },
 ];
+
+navItems.splice(
+  navItems.findIndex(item => item.key === 'settings'),
+  0,
+  { key: 'users', label: '用户管理', group: '系统', permissions: ['system:user:list'] },
+  { key: 'roles', label: '角色权限', group: '系统', permissions: ['system:role:list'] },
+);
+
+export function userRoles() {
+  return (state.user?.roles || [])
+    .map(role => (typeof role === 'string' ? role : role?.name))
+    .filter(Boolean);
+}
+
+export function userCanSee(item) {
+  if (state.user?.is_superuser) return true;
+  if (item.roles?.length) {
+    const roles = userRoles();
+    if (!item.roles.some(role => roles.includes(role))) return false;
+  }
+  if (item.permissions?.length) {
+    const permissions = state.user?.permissions || [];
+    if (!item.permissions.some(permission => permissions.includes(permission))) return false;
+  }
+  return true;
+}
+
+export function persistSettings() {
+  const { models, ...persisted } = state.settings;
+  localStorage.setItem('fogtraffic_vue_settings', JSON.stringify(persisted));
+}
 
 export function resetAgentFlow() {
   state.chat.agentFlow = [

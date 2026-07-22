@@ -8,6 +8,7 @@ const map = {
   stopped: ['已停止', 'warning'],
   failed: ['失败', 'danger'],
   healthy: ['健康', 'success'],
+  unknown: ['未检测', 'neutral'],
   warning: ['警告', 'warning'],
   degraded: ['降级', 'warning'],
   unhealthy: ['异常', 'danger'],

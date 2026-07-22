@@ -24,40 +24,43 @@ from app.agent.visibility_agent import analyze_frame
 from app.config.settings import settings
 from app.core.logger import get_logger
 from app.database.session import SessionLocal
-from app.entity.db_models import DetectionResult, DetectionScene, DetectionTask
+from app.entity.db_models import DetectionResult, DetectionScene, DetectionTask, ModelVersion
 
 
 logger = get_logger(__name__)
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 VIDEO_EXTENSIONS = {".mp4", ".avi", ".mov", ".mkv", ".wmv", ".flv"}
+MODEL_WEIGHT_EXTENSIONS = {".pt", ".pth", ".onnx", ".engine", ".weights"}
 
 
 class DetectionService:
     """Run YOLO inference and normalize detection results for API/frontend."""
 
     def __init__(self) -> None:
-        self._model = None
-        self._model_path = ""
+        self._models: dict[str, object] = {}
 
-    def _get_model(self):
+    def list_models(self) -> list[dict]:
+        """List database-registered and local file-based detection models."""
+        return _list_available_models()
+
+    def _get_model(
+        self,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
+        scene_id: int | None = None,
+    ):
         from ultralytics import YOLO
 
-        model_path = Path(settings.DEFAULT_MODEL_PATH)
-        if not model_path.is_absolute():
-            model_path = Path.cwd() / model_path
-        if not model_path.exists():
-            fallback = Path.cwd() / "yolo11n.pt"
-            if fallback.exists():
-                model_path = fallback
-            else:
-                raise FileNotFoundError(f"model weights not found: {model_path}")
-
-        resolved = str(model_path.resolve())
-        if self._model is None or self._model_path != resolved:
+        model_info = _resolve_model_info(
+            model_version_id=model_version_id,
+            model_key=model_key,
+            scene_id=scene_id,
+        )
+        resolved = model_info["path"]
+        if resolved not in self._models:
             logger.info("Loading detection model: %s", resolved)
-            self._model = YOLO(resolved)
-            self._model_path = resolved
-        return self._model
+            self._models[resolved] = YOLO(resolved)
+        return self._models[resolved], model_info
 
     def detect_single(
         self,
@@ -65,6 +68,8 @@ class DetectionService:
         conf: float = 0.25,
         iou: float = 0.45,
         save: bool = False,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
     ) -> dict:
         path = Path(image_path)
         if not path.exists():
@@ -72,7 +77,10 @@ class DetectionService:
         if path.suffix.lower() not in IMAGE_EXTENSIONS:
             return {"error": f"unsupported image type: {path.suffix}"}
 
-        model = self._get_model()
+        model, model_info = self._get_model(
+            model_version_id=model_version_id,
+            model_key=model_key,
+        )
         results = model.predict(
             source=str(path),
             conf=conf,
@@ -111,6 +119,7 @@ class DetectionService:
             "detections": detections,
             "annotated_image": annotated_image,
             "inference_time": round(float(result.speed.get("inference", 0)), 2),
+            "model": model_info,
         }
         payload["rain_fog_analysis"] = run_rain_fog_workflow(payload, image_path=str(path))
         return payload
@@ -120,12 +129,20 @@ class DetectionService:
         image_paths: Iterable[str | Path],
         conf: float = 0.25,
         iou: float = 0.45,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
     ) -> dict:
         items = []
         total_objects = 0
         class_counts: dict[str, int] = {}
         for image_path in image_paths:
-            result = self.detect_single(image_path, conf=conf, iou=iou)
+            result = self.detect_single(
+                image_path,
+                conf=conf,
+                iou=iou,
+                model_version_id=model_version_id,
+                model_key=model_key,
+            )
             items.append(result)
             if "error" in result:
                 continue
@@ -137,11 +154,19 @@ class DetectionService:
             "total_objects": total_objects,
             "class_counts": class_counts,
             "items": items,
+            "model": items[0].get("model") if items else None,
         }
         payload["rain_fog_analysis"] = run_rain_fog_workflow(payload)
         return payload
 
-    def detect_zip(self, zip_path: str | Path, conf: float = 0.25, iou: float = 0.45) -> dict:
+    def detect_zip(
+        self,
+        zip_path: str | Path,
+        conf: float = 0.25,
+        iou: float = 0.45,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
+    ) -> dict:
         zip_file = Path(zip_path)
         if not zip_file.exists():
             return {"error": f"zip not found: {zip_file}"}
@@ -154,7 +179,13 @@ class DetectionService:
                     image_paths.append(path)
             if not image_paths:
                 return {"error": "zip has no supported images"}
-            return self.detect_batch(image_paths, conf=conf, iou=iou)
+            return self.detect_batch(
+                image_paths,
+                conf=conf,
+                iou=iou,
+                model_version_id=model_version_id,
+                model_key=model_key,
+            )
 
     def detect_upload_bytes(
         self,
@@ -162,6 +193,8 @@ class DetectionService:
         filename: str,
         conf: float = 0.25,
         iou: float = 0.45,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
     ) -> dict:
         suffix = Path(filename).suffix.lower()
         if suffix not in IMAGE_EXTENSIONS:
@@ -170,7 +203,13 @@ class DetectionService:
             tmp_file.write(data)
             tmp_path = tmp_file.name
         try:
-            result = self.detect_single(tmp_path, conf=conf, iou=iou)
+            result = self.detect_single(
+                tmp_path,
+                conf=conf,
+                iou=iou,
+                model_version_id=model_version_id,
+                model_key=model_key,
+            )
             result["filename"] = filename
             return result
         finally:
@@ -188,6 +227,7 @@ class DetectionService:
         task_name: str | None = None,
         status: str = "processing",
         source_type: str | None = None,
+        model_version_id: int | None = None,
     ) -> int | None:
         """Create a database task row for async or long-running detection."""
         db = SessionLocal()
@@ -197,6 +237,7 @@ class DetectionService:
                 task_name=task_name or f"{task_type} detection",
                 user_id=user_id,
                 scene_id=scene.id,
+                model_version_id=model_version_id,
                 task_type=task_type,
                 source_type=source_type or task_type,
                 status=status,
@@ -242,6 +283,7 @@ class DetectionService:
         conf: float = 0.25,
         iou: float = 0.45,
         task_name: str | None = None,
+        model_version_id: int | None = None,
     ) -> int | None:
         """Persist image, batch, zip or completed video detection result."""
         db = SessionLocal()
@@ -259,6 +301,7 @@ class DetectionService:
                 task_name=task_name or result.get("filename") or f"{task_type} detection",
                 user_id=user_id,
                 scene_id=scene.id,
+                model_version_id=model_version_id,
                 task_type=task_type,
                 source_type="folder" if task_type == "zip" else task_type,
                 status="completed",
@@ -302,6 +345,8 @@ class DetectionService:
         output_dir: str | Path | None = None,
         db_task_id: int | None = None,
         progress_callback=None,
+        model_version_id: int | None = None,
+        model_key: str | None = None,
     ) -> dict:
         path = Path(video_path)
         if not path.exists():
@@ -322,7 +367,10 @@ class DetectionService:
 
         started = time.perf_counter()
         logger.info("Video detection started: task=%s path=%s", task_id, path)
-        model = self._get_model()
+        model, model_info = self._get_model(
+            model_version_id=model_version_id,
+            model_key=model_key,
+        )
         if progress_callback:
             progress_callback(4)
         fps = cap.get(cv2.CAP_PROP_FPS) or 25
@@ -485,6 +533,7 @@ class DetectionService:
             "key_frames": key_frames[:30],
             "inference_time": round((time.perf_counter() - started) * 1000, 2),
             "total_inference_time": round(total_inference_time, 2),
+            "model": model_info,
         }
         payload["rain_fog_analysis"] = run_rain_fog_workflow(
             payload,
@@ -564,8 +613,13 @@ class DetectionService:
         conf: float = 0.25,
         iou: float = 0.45,
         mode: str = "cpu",
+        model_version_id: int | None = None,
+        model_key: str | None = None,
     ) -> dict:
-        model = self._get_model()
+        model, model_info = self._get_model(
+            model_version_id=model_version_id,
+            model_key=model_key,
+        )
         if "," in frame_b64:
             frame_b64 = frame_b64.split(",", 1)[1]
         frame_bytes = base64.b64decode(frame_b64)
@@ -615,7 +669,264 @@ class DetectionService:
             },
             "inference_time": round((time.perf_counter() - started) * 1000, 2),
             "mode": mode,
+            "model": model_info,
         }
+
+
+def _list_available_models() -> list[dict]:
+    """Return model options from database records and local model files."""
+
+    models: list[dict] = []
+    seen_paths: set[str] = set()
+    used_keys: set[str] = set()
+
+    try:
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(ModelVersion)
+                .filter(ModelVersion.status != "deleted")
+                .order_by(ModelVersion.is_default.desc(), ModelVersion.id.asc())
+                .all()
+            )
+            for row in rows:
+                path = _resolve_path(row.model_path)
+                resolved = str(path)
+                exists = path.exists()
+                key = _unique_model_key(f"db:{row.id}", used_keys)
+                models.append(
+                    {
+                        "key": key,
+                        "id": row.id,
+                        "model_version_id": row.id,
+                        "name": row.model_name,
+                        "version": row.version,
+                        "model_name": row.model_name,
+                        "model_type": row.model_type,
+                        "source": "database",
+                        "path": resolved,
+                        "exists": exists,
+                        "is_default": bool(row.is_default),
+                        "map50": row.map50,
+                        "precision": row.precision,
+                        "recall": row.recall,
+                        "description": row.description,
+                    }
+                )
+                if exists:
+                    seen_paths.add(resolved)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.debug("Skipping database model registry: %s", exc)
+
+    default_path = _resolve_path(settings.DEFAULT_MODEL_PATH)
+    for path in _scan_model_files(default_path):
+        resolved = str(path)
+        if resolved in seen_paths:
+            continue
+        key = _unique_model_key(f"file:{_model_slug(path)}", used_keys)
+        models.append(
+            {
+                "key": key,
+                "id": None,
+                "model_version_id": None,
+                "name": _model_display_name(path),
+                "version": None,
+                "model_name": _model_display_name(path),
+                "model_type": "local",
+                "source": "file",
+                "path": resolved,
+                "exists": True,
+                "is_default": resolved == str(default_path) if default_path.exists() else False,
+                "map50": None,
+                "precision": None,
+                "recall": None,
+                "description": "Local model file",
+            }
+        )
+        seen_paths.add(resolved)
+
+    return models
+
+
+def _resolve_model_info(
+    model_version_id: int | None = None,
+    model_key: str | None = None,
+    scene_id: int | None = None,
+) -> dict:
+    """Resolve a selected model to an existing weight file."""
+
+    selected_version_id = _coerce_int(model_version_id)
+    selected_key = (model_key or "").strip()
+    if selected_key.startswith("db:"):
+        selected_version_id = _coerce_int(selected_key.split(":", 1)[1])
+
+    if selected_key and not selected_key.startswith("db:"):
+        for option in _list_available_models():
+            if option["key"] == selected_key and option.get("exists"):
+                return option
+        raise FileNotFoundError(f"selected model not found: {selected_key}")
+
+    if selected_version_id:
+        option = _model_option_from_db(selected_version_id)
+        if option and option.get("exists"):
+            return option
+        raise FileNotFoundError(f"model version not found: {selected_version_id}")
+
+    if scene_id:
+        option = _default_scene_model(scene_id)
+        if option and option.get("exists"):
+            return option
+
+    options = [item for item in _list_available_models() if item.get("exists")]
+    default_option = next((item for item in options if item.get("is_default")), None)
+    if default_option:
+        return default_option
+    if options:
+        return options[0]
+
+    raise FileNotFoundError("No available YOLO model weights found")
+
+
+def _model_option_from_db(model_version_id: int) -> dict | None:
+    db = SessionLocal()
+    try:
+        row = db.query(ModelVersion).filter(ModelVersion.id == model_version_id).first()
+        if not row:
+            return None
+        path = _resolve_path(row.model_path)
+        return {
+            "key": f"db:{row.id}",
+            "id": row.id,
+            "model_version_id": row.id,
+            "name": row.model_name,
+            "version": row.version,
+            "model_name": row.model_name,
+            "model_type": row.model_type,
+            "source": "database",
+            "path": str(path),
+            "exists": path.exists(),
+            "is_default": bool(row.is_default),
+            "map50": row.map50,
+            "precision": row.precision,
+            "recall": row.recall,
+            "description": row.description,
+        }
+    finally:
+        db.close()
+
+
+def _default_scene_model(scene_id: int) -> dict | None:
+    db = SessionLocal()
+    try:
+        row = (
+            db.query(ModelVersion)
+            .filter(ModelVersion.scene_id == scene_id, ModelVersion.is_default == True)
+            .first()
+        )
+        if not row:
+            return None
+        path = _resolve_path(row.model_path)
+        return {
+            "key": f"db:{row.id}",
+            "id": row.id,
+            "model_version_id": row.id,
+            "name": row.model_name,
+            "version": row.version,
+            "model_name": row.model_name,
+            "model_type": row.model_type,
+            "source": "database",
+            "path": str(path),
+            "exists": path.exists(),
+            "is_default": bool(row.is_default),
+            "map50": row.map50,
+            "precision": row.precision,
+            "recall": row.recall,
+            "description": row.description,
+        }
+    finally:
+        db.close()
+
+
+def _scan_model_files(default_path: Path) -> list[Path]:
+    """Scan the curated local model directory."""
+
+    root = _project_root()
+    candidates: list[Path] = []
+    seen: set[str] = set()
+
+    def add(path: Path) -> None:
+        if not path.exists() or path.suffix.lower() not in MODEL_WEIGHT_EXTENSIONS:
+            return
+        resolved = path.resolve()
+        key = str(resolved).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        candidates.append(resolved)
+
+    add(default_path)
+    for folder in [root / "models"]:
+        if folder.exists():
+            for path in sorted(folder.rglob("*")):
+                add(path)
+
+    return candidates
+
+
+def _resolve_path(path_value: str | Path) -> Path:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path.resolve()
+    for candidate in [
+        _project_root() / path,
+        _project_root() / "backend" / path,
+        Path.cwd() / path,
+    ]:
+        if candidate.exists():
+            return candidate.resolve()
+    return (_project_root() / path).resolve()
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
+def _model_slug(path: Path) -> str:
+    raw = _model_display_name(path)
+    slug = "".join(
+        ch.lower() if ch.isascii() and ch.isalnum() else "-"
+        for ch in raw
+    ).strip("-")
+    return slug or "model"
+
+
+def _model_display_name(path: Path) -> str:
+    if path.name.lower() != "best.pt":
+        return path.stem
+    if path.parent.name.lower() == "weights" and path.parent.parent.name:
+        return path.parent.parent.name
+    return path.parent.name
+
+
+def _unique_model_key(base: str, used_keys: set[str]) -> str:
+    key = base
+    index = 2
+    while key in used_keys:
+        key = f"{base}-{index}"
+        index += 1
+    used_keys.add(key)
+    return key
+
+
+def _coerce_int(value) -> int | None:
+    try:
+        if value in (None, ""):
+            return None
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def _result_to_base64(result) -> str:

@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     DATASET_BASE_DIR: str = "datasets"
 
     # Detection and Agent
-    DEFAULT_MODEL_PATH: str = "runs/train/rain_yolo_multiclass_v1(final)/weights/best.pt"
+    DEFAULT_MODEL_PATH: str = "models/acdc_v1.0.0/best.pt"
     DEFAULT_DATA_YAML: str = "datasets/rsod/raindataset/data.yaml"
     DETECTION_OUTPUT_DIR: str = "runs/detect"
     LLM_PROVIDER: str = "openai"
@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     JWT_SECRET_KEY: str = "your-super-secret-key-change-in-production"
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 480
+    DEFAULT_ADMIN_USERNAME: str = "admin"
+    DEFAULT_ADMIN_EMAIL: str = "admin@local.dev"
+    DEFAULT_ADMIN_PASSWORD: str = "admin123456"
 
     # ── CORS 配置 ────────────────────────────────────
     ALLOWED_ORIGINS: str = (
