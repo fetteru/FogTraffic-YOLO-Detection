@@ -47,6 +47,14 @@ class UserService:
             hashed_password=hash_password(password),
         )
         db.add(new_user)
+        db.flush()  # 获取用户 ID
+
+        # 自动分配默认角色 (viewer)
+        from app.entity.db_models import Role, UserRole
+        default_role = db.query(Role).filter(Role.name == "viewer").first()
+        if default_role:
+            db.add(UserRole(user_id=new_user.id, role_id=default_role.id))
+
         db.commit()
         db.refresh(new_user)
 
@@ -86,6 +94,22 @@ class UserService:
     def get_user_roles(db: Session, user: User) -> list[str]:
         """获取用户的角色标识列表"""
         return [ur.role.name for ur in user.user_roles]
+
+    @staticmethod
+    def get_user_permissions(db: Session, user: User) -> list[str]:
+        """获取用户的权限编码列表"""
+        # 超级管理员拥有所有权限
+        if user.is_superuser:
+            from app.entity.db_models import Permission
+            all_perms = db.query(Permission).all()
+            return [p.code for p in all_perms]
+
+        # 普通用户通过角色获取权限
+        permissions = set()
+        for ur in user.user_roles:
+            for rp in ur.role.role_permissions:
+                permissions.add(rp.permission.code)
+        return list(permissions)
 
     @staticmethod
     def get_user_by_id(db: Session, user_id: int) -> User:

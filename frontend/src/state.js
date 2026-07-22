@@ -1,0 +1,167 @@
+import { reactive } from 'vue';
+
+const persistedSettings = (() => {
+  try {
+    return JSON.parse(localStorage.getItem('fogtraffic_vue_settings') || '{}');
+  } catch {
+    return {};
+  }
+})();
+
+function welcomeMessage() {
+  return {
+    id: crypto.randomUUID(),
+    role: 'assistant',
+    content: '你好，我是 **FogTraffic 多智能体平台**。你可以上传图片并提问，例如“检测车辆数量，并解释 IoU”。',
+    time: new Date().toISOString(),
+  };
+}
+
+export const state = reactive({
+  page: location.hash?.replace('#', '') || 'chat',
+  token: localStorage.getItem('rsod_token') || '',
+  user: null,
+  sidebarCollapsed: false,
+  settings: {
+    apiBase: persistedSettings.apiBase || 'http://localhost:8000',
+    confidence: Number(persistedSettings.confidence ?? 0.25),
+    iou: Number(persistedSettings.iou ?? 0.45),
+    defaultModel: persistedSettings.defaultModel || 'yolov11s-rsod-v3.2',
+  },
+  toast: [],
+  chat: {
+    messages: [welcomeMessage()],
+    input: '',
+    attachments: [],
+    streaming: false,
+    quickActionsOpen: false,
+    trace: [{ time: '刚刚', type: 'system', title: 'Agent 就绪', detail: 'Supervisor、Detection、QA/RAG、Analysis 已就绪' }],
+    agentFlow: [],
+  },
+  detection: {
+    mode: 'single',
+    files: [],
+    results: [],
+    selected: 0,
+    running: false,
+    camera: {
+      active: false,
+      connecting: false,
+      connected: false,
+      sending: false,
+      paused: false,
+      error: '',
+      status: '未连接',
+      startedAt: 0,
+      stats: { frames: 0, objects: 0, fps: 0, inference: 0 },
+      detections: [],
+      samples: [],
+    },
+  },
+  tasks: [],
+  datasets: [],
+  history: [],
+  dashboard: null,
+});
+
+export const navItems = [
+  { key: 'chat', label: '智能对话', group: '工作台', permission: null },
+  { key: 'detection', label: '交通检测工作台', group: '工作台', permission: 'detection:scan' },
+  { key: 'datasets', label: '数据集管理', group: '模型闭环', permission: 'detection:batch' },
+  { key: 'training', label: '模型训练', group: '模型闭环', permission: 'training:start' },
+  { key: 'evaluation', label: '模型评估', group: '模型闭环', permission: 'training:evaluate' },
+  { key: 'dashboard', label: '数据看板', group: '分析与运维', permission: 'dashboard:view' },
+  { key: 'history', label: '任务历史', group: '分析与运维', permission: 'history:view' },
+  { key: 'settings', label: '系统设置', group: '系统', permission: null },
+  { key: 'users', label: '用户管理', group: '权限管理', permission: 'user:manage' },
+  { key: 'roles', label: '角色管理', group: '权限管理', permission: 'role:manage' },
+];
+
+/**
+ * 检查用户是否有某个权限
+ * @param {string} permission - 权限编码
+ * @returns {boolean}
+ */
+export function hasPermission(permission) {
+  if (!permission) return true; // 无权限要求，允许访问
+  if (!state.user) return false;
+  // 超级管理员拥有所有权限
+  if (state.user.is_superuser) return true;
+  // 检查权限列表
+  return state.user.permissions?.includes(permission) || false;
+}
+
+/**
+ * 获取用户有权限的导航项
+ * @returns {Array}
+ */
+export function getAuthorizedNavItems() {
+  return navItems.filter(item => hasPermission(item.permission));
+}
+
+export function resetAgentFlow() {
+  state.chat.agentFlow = [
+    { id: 'supervisor', label: 'Supervisor', detail: '意图识别与路由', status: 'idle' },
+    { id: 'detection', label: 'Detection', detail: 'YOLO 检测', status: 'idle' },
+    { id: 'qa', label: 'QA / RAG', detail: '知识库检索', status: 'idle' },
+    { id: 'analysis', label: 'Analysis', detail: '统计分析', status: 'idle' },
+    { id: 'summarize', label: 'Summarize', detail: '结果汇总', status: 'idle' },
+  ];
+}
+
+export function resetUserScopedState() {
+  state.chat.messages = [welcomeMessage()];
+  state.chat.input = '';
+  state.chat.attachments = [];
+  state.chat.streaming = false;
+  state.chat.controller = null;
+  state.chat.trace = [{ time: '刚刚', type: 'system', title: 'Agent 就绪', detail: 'Supervisor、Detection、QA/RAG、Analysis 已就绪' }];
+  resetAgentFlow();
+
+  state.detection.files = [];
+  state.detection.results = [];
+  state.detection.selected = 0;
+  state.detection.running = false;
+  state.detection.camera = {
+    active: false,
+    connecting: false,
+    connected: false,
+    sending: false,
+    paused: false,
+    error: '',
+    status: '未连接',
+    startedAt: 0,
+    stats: { frames: 0, objects: 0, fps: 0, inference: 0 },
+    detections: [],
+    samples: [],
+  };
+
+  state.tasks = [];
+  state.history = [];
+  state.dashboard = null;
+}
+
+export function addTrace(type, title, detail) {
+  state.chat.trace.unshift({ time: '刚刚', type, title, detail });
+  if (state.chat.trace.length > 20) state.chat.trace.length = 20;
+}
+
+export function updateAgentFlow(event) {
+  const alias = { parallel: 'supervisor', detection_agent: 'detection', qa_agent: 'qa', analysis_agent: 'analysis', supervisor_summarize: 'summarize' };
+  const id = alias[event.node] || event.node || 'supervisor';
+  const item = state.chat.agentFlow.find(node => node.id === id);
+  if (!item) return;
+  item.status = event.status || 'running';
+  item.detail = event.detail || event.title || item.detail;
+}
+
+export function toast(message, type = 'success') {
+  const item = { id: crypto.randomUUID(), message, type };
+  state.toast.push(item);
+  setTimeout(() => {
+    const index = state.toast.findIndex(row => row.id === item.id);
+    if (index >= 0) state.toast.splice(index, 1);
+  }, 2600);
+}
+
+resetAgentFlow();

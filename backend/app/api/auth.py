@@ -83,6 +83,7 @@ async def login(request: UserLogin, db: Session = Depends(get_db)):
 
     access_token = user_service.create_access_token_for_user(user)
     roles = user_service.get_user_roles(db, user)
+    permissions = user_service.get_user_permissions(db, user)
 
     return {
         "access_token": access_token,
@@ -93,6 +94,7 @@ async def login(request: UserLogin, db: Session = Depends(get_db)):
             "email": user.email,
             "avatar": user.avatar,
             "roles": roles,
+            "permissions": permissions,
         },
     }
 
@@ -104,6 +106,7 @@ async def get_current_user_info(
 ):
     """获取当前登录用户信息（需要 Token 认证）"""
     roles = user_service.get_user_roles(db, current_user)
+    permissions = user_service.get_user_permissions(db, current_user)
     return {
         "id": current_user.id,
         "username": current_user.username,
@@ -113,6 +116,7 @@ async def get_current_user_info(
         "is_active": current_user.is_active,
         "is_superuser": current_user.is_superuser,
         "roles": roles,
+        "permissions": permissions,
         "last_login_at": current_user.last_login_at,
         "created_at": current_user.created_at,
     }
