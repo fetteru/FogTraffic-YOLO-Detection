@@ -1,0 +1,461 @@
+:root {
+  --gesture-cyan: #29f4ff;
+  --gesture-blue: #00cfff;
+  --gesture-violet: #35dfff;
+  --gesture-mint: #38ffc0;
+  --gesture-coral: #ff8ca0;
+}
+
+.gesture-experience {
+  position: fixed;
+  z-index: 6200;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity .2s ease, visibility 0s linear .2s;
+}
+
+body.app-authenticated .gesture-experience {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+#gesture-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  transition: opacity .25s ease;
+  mix-blend-mode: screen;
+}
+
+.gesture-experience.is-active #gesture-stage {
+  opacity: .88;
+}
+
+.gesture-experience.particles-off #gesture-stage {
+  opacity: 0;
+}
+
+#gesture-camera {
+  position: fixed;
+  z-index: 4;
+  right: 18px;
+  top: 78px;
+  width: min(310px, 28vw);
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  border: 1px solid rgba(109, 227, 255, .26);
+  border-radius: 18px;
+  background: #020814;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .42), inset 0 0 0 1px rgba(255, 255, 255, .04);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(14px) scale(.97);
+  transition: opacity .2s ease, transform .2s ease, visibility 0s linear .2s;
+}
+
+#gesture-camera.is-visible {
+  opacity: .92;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+
+#gesture-camera.is-mirrored {
+  transform: scaleX(-1);
+}
+
+#gesture-camera.is-visible.is-mirrored {
+  transform: scaleX(-1);
+}
+
+.gesture-status {
+  position: fixed;
+  z-index: 8;
+  right: 18px;
+  bottom: 132px;
+  width: min(290px, calc(100vw - 36px));
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: 10px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px 13px;
+  border: 1px solid rgba(94, 209, 255, .16);
+  border-radius: 15px;
+  background: rgba(3, 14, 27, .78);
+  color: #eafaff;
+  box-shadow: 0 18px 52px rgba(0, 0, 0, .26);
+  backdrop-filter: blur(18px) saturate(1.25);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+.gesture-experience.is-active .gesture-status {
+  opacity: 1;
+  transform: none;
+}
+
+.gesture-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(178, 210, 225, .42);
+  box-shadow: 0 0 0 5px rgba(178, 210, 225, .05);
+}
+
+.gesture-status-dot.is-live {
+  background: #5fffc1;
+  box-shadow: 0 0 0 5px rgba(95, 255, 193, .08), 0 0 16px rgba(95, 255, 193, .72);
+}
+
+.gesture-status-dot.is-error {
+  background: #ff738d;
+  box-shadow: 0 0 0 5px rgba(255, 115, 141, .08), 0 0 16px rgba(255, 115, 141, .72);
+}
+
+.gesture-status small,
+.gesture-status strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gesture-status small {
+  color: rgba(199, 228, 243, .5);
+  font-size: 9px;
+  letter-spacing: .03em;
+}
+
+.gesture-status strong {
+  margin-top: 2px;
+  font-size: 12px;
+}
+
+.gesture-confidence {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 7px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(147, 205, 230, .08);
+}
+
+.gesture-confidence b {
+  display: block;
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--gesture-blue), var(--gesture-cyan), var(--gesture-mint));
+  box-shadow: 0 0 14px rgba(41, 244, 255, .88), 0 0 24px rgba(56, 255, 192, .34);
+  transition: width .12s linear;
+}
+
+.gesture-mini-toolbar {
+  position: fixed;
+  z-index: 12;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  pointer-events: auto;
+}
+
+.gesture-mini-toolbar button {
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 12px;
+  border: 1px solid rgba(91, 196, 241, .17);
+  border-radius: 12px;
+  background: rgba(3, 15, 29, .76);
+  color: rgba(216, 240, 250, .72);
+  font: 650 11px/1 Inter, "PingFang SC", sans-serif;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(16px) saturate(1.22);
+  cursor: pointer;
+  transition: color .18s ease, border-color .18s ease, background .18s ease, transform .18s ease;
+}
+
+.gesture-mini-toolbar button:hover:not(:disabled) {
+  color: #f1fdff;
+  border-color: rgba(91, 218, 255, .4);
+  background: rgba(14, 58, 83, .84);
+  transform: translateY(-2px);
+}
+
+.gesture-mini-toolbar button.active {
+  color: #dffcff;
+  border-color: rgba(92, 225, 255, .48);
+  background: linear-gradient(135deg, rgba(27, 126, 167, .74), rgba(67, 70, 153, .68));
+  box-shadow: 0 12px 34px rgba(19, 118, 165, .25), inset 0 0 0 1px rgba(255, 255, 255, .05);
+}
+
+.gesture-mini-toolbar button:disabled {
+  opacity: .42;
+  cursor: not-allowed;
+}
+
+.gesture-mini-toolbar svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.gesture-route-map {
+  position: fixed;
+  z-index: 7;
+  right: 18px;
+  bottom: 188px;
+  width: min(290px, calc(100vw - 36px));
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+  padding: 9px;
+  border: 1px solid rgba(93, 205, 248, .12);
+  border-radius: 15px;
+  background: rgba(3, 14, 27, .66);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .22);
+  backdrop-filter: blur(17px);
+  opacity: 0;
+  transform: translateY(10px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+.gesture-experience.is-active .gesture-route-map {
+  opacity: 1;
+  transform: none;
+}
+
+.gesture-route-map span {
+  min-height: 29px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 6px;
+  border: 1px solid rgba(88, 196, 241, .1);
+  border-radius: 8px;
+  color: rgba(211, 235, 245, .62);
+  font-size: 9px;
+}
+
+.gesture-route-map b {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(0, 223, 255, .16), rgba(0, 255, 184, .13));
+  color: #c9ffff;
+  box-shadow: inset 0 0 10px rgba(0, 242, 255, .08), 0 0 10px rgba(0, 255, 194, .06);
+  font-size: 10px;
+}
+
+.gesture-route-map small {
+  grid-column: 1 / -1;
+  padding-top: 2px;
+  color: rgba(185, 218, 232, .38);
+  font-size: 9px;
+  text-align: center;
+}
+
+.gesture-interaction-tip {
+  position: fixed;
+  z-index: 7;
+  left: 50%;
+  bottom: 18px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border: 1px solid rgba(88, 195, 241, .13);
+  border-radius: 999px;
+  background: rgba(3, 15, 29, .68);
+  color: rgba(210, 235, 246, .56);
+  font-size: 10px;
+  box-shadow: 0 12px 36px rgba(0, 0, 0, .2);
+  backdrop-filter: blur(15px);
+  opacity: 0;
+  transform: translate(-50%, 10px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+.gesture-experience.is-active .gesture-interaction-tip {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.gesture-interaction-tip i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gesture-mint);
+  box-shadow: 0 0 14px rgba(111, 242, 195, .8);
+}
+
+.gesture-cursor {
+  position: fixed;
+  z-index: 20;
+  left: 0;
+  top: 0;
+  width: 52px;
+  height: 52px;
+  margin: -26px 0 0 -26px;
+  border: 1px solid rgba(112, 255, 236, .84);
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(229, 255, 253, .28), rgba(0, 242, 255, .11) 38%, rgba(0, 255, 184, .06) 55%, transparent 74%);
+  box-shadow: 0 0 20px rgba(0, 238, 255, .86), 0 0 48px rgba(0, 255, 190, .38), inset 0 0 15px rgba(210, 255, 249, .24);
+  opacity: 0;
+  transform: translate3d(-200px, -200px, 0);
+  transition: width .12s ease, height .12s ease, margin .12s ease, border-color .12s ease, opacity .12s ease;
+  will-change: transform;
+}
+
+.gesture-cursor.is-visible { opacity: 1; }
+.gesture-cursor.is-hovering { width: 62px; height: 62px; margin: -31px 0 0 -31px; border-color: rgba(210, 252, 255, .94); }
+.gesture-cursor.is-pinching { width: 36px; height: 36px; margin: -18px 0 0 -18px; border-color: rgba(193, 174, 255, .94); }
+.gesture-cursor.is-holding { border-style: dashed; animation: gestureCursorSpin .85s linear infinite; }
+
+.gesture-cursor i,
+.gesture-cursor b {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.gesture-cursor i {
+  width: 9px;
+  height: 9px;
+  background: #efffff;
+  box-shadow: 0 0 14px rgba(0, 244, 255, 1), 0 0 30px rgba(0, 255, 184, .72);
+}
+
+.gesture-cursor b {
+  width: 3px;
+  height: 3px;
+  background: #fff;
+}
+
+@keyframes gestureCursorSpin { to { rotate: 360deg; } }
+
+.gesture-route-flash {
+  position: fixed;
+  z-index: 22;
+  left: 50%;
+  top: 90px;
+  min-width: 250px;
+  max-width: min(460px, calc(100vw - 32px));
+  padding: 13px 18px;
+  border: 1px solid rgba(103, 220, 255, .28);
+  border-radius: 14px;
+  background: rgba(2, 13, 26, .88);
+  color: #ebfbff;
+  box-shadow: 0 20px 70px rgba(0, 0, 0, .36), 0 0 36px rgba(51, 178, 238, .12);
+  backdrop-filter: blur(20px);
+  text-align: center;
+  font-size: 13px;
+  font-weight: 760;
+  opacity: 0;
+  transform: translate(-50%, -12px) scale(.97);
+  visibility: hidden;
+  transition: opacity .18s ease, transform .18s ease, visibility 0s linear .18s;
+}
+
+.gesture-route-flash.is-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.gesture-route-flash small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(196, 226, 240, .5);
+  font-size: 9px;
+  font-weight: 500;
+}
+
+.gesture-error {
+  position: fixed;
+  z-index: 24;
+  left: 50%;
+  bottom: 78px;
+  width: min(560px, calc(100vw - 32px));
+  padding: 12px 15px;
+  border: 1px solid rgba(255, 110, 137, .3);
+  border-radius: 12px;
+  background: rgba(54, 11, 24, .9);
+  color: #ffd6de;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .32);
+  transform: translateX(-50%);
+  pointer-events: auto;
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.gesture-click-ripple {
+  position: fixed;
+  z-index: 19;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  border: 1px solid rgba(111, 255, 230, .96);
+  box-shadow: 0 0 18px rgba(0, 241, 255, .72), 0 0 34px rgba(0, 255, 179, .34);
+  border-radius: 50%;
+  pointer-events: none;
+  animation: gestureRipple .55s ease-out forwards;
+}
+
+@keyframes gestureRipple {
+  to { opacity: 0; transform: scale(3.4); }
+}
+
+@media (max-width: 900px) {
+  .gesture-mini-toolbar {
+    left: 12px;
+    right: 12px;
+    bottom: 12px;
+    justify-content: flex-end;
+  }
+  .gesture-mini-toolbar button { min-width: 42px; padding: 0 10px; }
+  .gesture-mini-toolbar button:not(:first-child) .gesture-toolbar-label { display: none; }
+  .gesture-route-map { right: 12px; bottom: 119px; }
+  .gesture-status { right: 12px; bottom: 63px; }
+  #gesture-camera { right: 12px; top: 70px; width: min(280px, 46vw); }
+  .gesture-interaction-tip { display: none; }
+}
+
+@media (max-width: 560px) {
+  .gesture-route-map { left: 12px; right: 12px; width: auto; }
+  .gesture-status { left: 12px; right: 12px; width: auto; }
+  #gesture-camera { width: 48vw; top: 68px; }
+  .gesture-mini-toolbar { justify-content: center; }
+  .gesture-mini-toolbar button:first-child { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .gesture-experience *,
+  .gesture-experience *::before,
+  .gesture-experience *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}
